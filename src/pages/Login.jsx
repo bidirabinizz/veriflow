@@ -47,32 +47,33 @@ const handleSubmit = async (e) => {
 
   setIsLoading(true);
   
-try {
-  const response = await fetch(`${API_BASE_URL}/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: formData.email, password: formData.password }),
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: formData.email, password: formData.password }),
+    });
 
     const data = await response.json();
-
-    console.log("🔐 BACKEND RESPONSE:", data);
+    console.log("� BACKEND RESPONSE:", data);
 
     if (!response.ok) {
-      // ✅ Backend'den gelen hata mesajını göster
       throw new Error(data.message || "Giriş başarısız!");
     }
 
-    // ✅ Başarılı giriş
+    // ✅ Kullanıcı verilerini al
     let userData = data.user || {
-      id: 1,
+      id: data.userId || 1,
       email: formData.email,
-      fullname: formData.email.split('@')[0]
+      fullname: data.fullname || formData.email.split('@')[0],
+      role: data.role || 'user' // Backend'den role bilgisi gelmeli
     };
 
-    console.log("💾 TOKEN:", data.token);
-    console.log("💾 USER:", userData);
+    console.log("� TOKEN:", data.token);
+    console.log("� USER:", userData);
+    console.log("� ROLE:", userData.role);
 
+    // ✅ Storage'a kaydet
     if (rememberMe) {
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(userData));
@@ -83,10 +84,15 @@ try {
     }
 
     alert("Giriş başarılı!");
-    navigate('/dashboard');
+
+    // ✅ ROLE'A GÖRE YÖNLENDİRME - BURASI ÖNEMLİ!
+    if (userData.role === 'admin') {
+      navigate('/admin/dashboard'); // Admin paneli
+    } else {
+      navigate('/dashboard'); // Normal kullanıcı paneli
+    }
     
   } catch (error) {
-    // ✅ Detaylı hata mesajı göster
     console.error("❌ LOGIN ERROR:", error.message);
     alert(`Giriş başarısız: ${error.message}`);
   } finally {

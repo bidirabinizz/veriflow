@@ -12,6 +12,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import NasilKullanilir from "./pages/NasilKullanilir";
 import SifremiUnuttum from "./pages/SifremiUnuttum";
 import LicenseDetail from './components/LicenseDetail';
+import AdminDashboard from './pages/AdminDashboard';
 
 
 function AuthWrapper({ children }) {
@@ -50,8 +51,9 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/dashboard/licenses/:id" element={<LicenseDetail />} />
-
             <Route path="/dashboard/*" element={<Dashboard />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />      
+            <Route path="/admin/dashboard/*" element={<AdminDashboard />} />
           </Routes>
         </main>
         <Footer />

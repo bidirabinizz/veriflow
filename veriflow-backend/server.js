@@ -234,6 +234,7 @@ app.post("/login", (req, res) => {
     const token = jwt.sign({ 
       id: user.id, 
       email: user.email,
+      role: user.role,
       fullname: user.fullname 
     }, process.env.JWT_SECRET, {
       expiresIn: "2h",
@@ -246,6 +247,7 @@ app.post("/login", (req, res) => {
       token,
       user: {
         id: user.id,
+        role: user.role,
         email: user.email,
         fullname: user.fullname
       }
@@ -971,6 +973,221 @@ app.post("/api/verify-license", verifyApiKey, (req, res) => {
         expires_at: license.expires_at,
         hwid_locked: license.require_hwid
       }
+    });
+  });
+});
+
+// � ADMIN ENDPOINT'LERİ
+
+// ✅ TÜM KULLANICILARI GETİR (ADMIN ONLY)
+app.get("/admin/users", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+  
+  // Önce kullanıcının admin olup olmadığını kontrol et
+  db.query("SELECT role FROM users WHERE id = ?", [user_id], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+    }
+    
+    if (results[0].role !== 'admin') {
+      return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
+    }
+    
+    // Tüm kullanıcıları getir
+    const sql = `
+      SELECT 
+        u.id, u.fullname, u.email, u.role, u.plan_id, u.created_at,
+        p.name as plan_name,
+        COUNT(l.id) as license_count
+      FROM users u
+      LEFT JOIN plans p ON u.plan_id = p.id
+      LEFT JOIN licenses l ON u.id = l.user_id
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+    `;
+    
+    db.query(sql, (err, results) => {
+      if (err) {
+        console.error('❌ Admin users fetch error:', err);
+        return res.status(500).json({ message: "Kullanıcılar getirilemedi!" });
+      }
+      
+      res.json({
+        message: "Tüm kullanıcılar getirildi",
+        users: results
+      });
+    });
+  });
+});
+
+// ✅ TÜM LİSANSLARI GETİR (ADMIN ONLY)
+app.get("/admin/licenses", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+  
+  // Admin kontrolü
+  db.query("SELECT role FROM users WHERE id = ?", [user_id], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+    }
+    
+    if (results[0].role !== 'admin') {
+      return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
+    }
+    
+    // Tüm lisansları getir
+    const sql = `
+      SELECT 
+        l.*,
+        u.fullname as user_name,
+        u.email as user_email,
+        p.name as plan_name
+      FROM licenses l
+      LEFT JOIN users u ON l.user_id = u.id
+      LEFT JOIN plans p ON u.plan_id = p.id
+      ORDER BY l.created_at DESC
+    `;
+    
+    db.query(sql, (err, results) => {
+      if (err) {
+        console.error('❌ Admin licenses fetch error:', err);
+        return res.status(500).json({ message: "Lisanslar getirilemedi!" });
+      }
+      
+      res.json({
+        message: "Tüm lisanslar getirildi",
+        licenses: results
+      });
+    });
+  });
+});
+
+// ✅ KULLANICI ROLÜNÜ DEĞİŞTİR (ADMIN ONLY)
+app.put("/admin/users/:id/role", verifyToken, (req, res) => {
+  const admin_id = req.user.id;
+  const target_user_id = req.params.id;
+  const { role } = req.body;
+  
+  if (!role || !['admin', 'user'].includes(role)) {
+    return res.status(400).json({ message: "Geçerli bir rol giriniz! (admin/user)" });
+  }
+  
+  // Admin kontrolü
+  db.query("SELECT role FROM users WHERE id = ?", [admin_id], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+    }
+    
+    if (results[0].role !== 'admin') {
+      return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
+    }
+    
+    // Kendi rolünü değiştirmeyi engelle
+    if (parseInt(admin_id) === parseInt(target_user_id)) {
+      return res.status(400).json({ message: "Kendi rolünüzü değiştiremezsiniz!" });
+    }
+    
+    // Kullanıcı rolünü güncelle
+    db.query("UPDATE users SET role = ? WHERE id = ?", [role, target_user_id], (err, result) => {
+      if (err) {
+        console.error('❌ User role update error:', err);
+        return res.status(500).json({ message: "Rol güncellenemedi!" });
+      }
+      
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+      }
+      
+      res.json({ 
+        message: `Kullanıcı rolü ${role} olarak güncellendi!`,
+        user_id: target_user_id,
+        new_role: role
+      });
+    });
+  });
+});
+
+// ✅ KULLANICI SİL (ADMIN ONLY)
+app.delete("/admin/users/:id", verifyToken, (req, res) => {
+  const admin_id = req.user.id;
+  const target_user_id = req.params.id;
+  
+  // Admin kontrolü
+  db.query("SELECT role FROM users WHERE id = ?", [admin_id], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+    }
+    
+    if (results[0].role !== 'admin') {
+      return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
+    }
+    
+    // Kendini silmeyi engelle
+    if (parseInt(admin_id) === parseInt(target_user_id)) {
+      return res.status(400).json({ message: "Kendinizi silemezsiniz!" });
+    }
+    
+    // Kullanıcıyı sil
+    db.query("DELETE FROM users WHERE id = ?", [target_user_id], (err, result) => {
+      if (err) {
+        console.error('❌ User delete error:', err);
+        return res.status(500).json({ message: "Kullanıcı silinemedi!" });
+      }
+      
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+      }
+      
+      res.json({ 
+        message: "Kullanıcı başarıyla silindi!",
+        user_id: target_user_id
+      });
+    });
+  });
+});
+
+// ✅ ADMIN İSTATİSTİKLERİ
+app.get("/admin/stats", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+  
+  // Admin kontrolü
+  db.query("SELECT role FROM users WHERE id = ?", [user_id], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+    }
+    
+    if (results[0].role !== 'admin') {
+      return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
+    }
+    
+    // İstatistikleri getir
+    const statsQueries = {
+      total_users: "SELECT COUNT(*) as count FROM users",
+      total_licenses: "SELECT COUNT(*) as count FROM licenses",
+      active_licenses: "SELECT COUNT(*) as count FROM licenses WHERE is_active = true",
+      total_plans: "SELECT COUNT(*) as count FROM plans",
+      recent_users: "SELECT COUNT(*) as count FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+    };
+    
+    Promise.all(
+      Object.entries(statsQueries).map(([key, query]) => 
+        new Promise((resolve, reject) => {
+          db.query(query, (err, results) => {
+            if (err) reject(err);
+            else resolve({ [key]: results[0].count });
+          });
+        })
+      )
+    )
+    .then(results => {
+      const stats = Object.assign({}, ...results);
+      res.json({
+        message: "Admin istatistikleri getirildi",
+        stats: stats
+      });
+    })
+    .catch(error => {
+      console.error('❌ Admin stats error:', error);
+      res.status(500).json({ message: "İstatistikler getirilemedi!" });
     });
   });
 });
