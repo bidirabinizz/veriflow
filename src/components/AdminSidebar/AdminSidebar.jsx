@@ -7,7 +7,8 @@ import {
   Key, 
   Settings, 
   LogOut,
-  Crown 
+  Crown,
+  Shield 
 } from 'lucide-react';
 
 export default function AdminSidebar({ userData }) {
@@ -19,6 +20,8 @@ export default function AdminSidebar({ userData }) {
     { path: '/admin/dashboard/users', icon: Users, label: 'Kullanıcı Yönetimi' },
     { path: '/admin/dashboard/licenses', icon: Key, label: 'Lisans Yönetimi' },
     { path: '/admin/dashboard/profile', icon: Settings, label: 'Profil' },
+        { path: '/admin/dashboard/security-logs', icon: Shield, label: 'Güvenlik Logları' }, // ✅ YENİ
+
   ];
 
   const handleLogout = () => {

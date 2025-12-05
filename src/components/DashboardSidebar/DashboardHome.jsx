@@ -40,7 +40,7 @@ export default function DashboardHome({ userData }) {
   const fetchDashboardStats = async () => {
     try {
       const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-      // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
+
       const response = await fetch(`${API_BASE_URL}/licenses`, {
         headers: {
           "Authorization": `Bearer ${token}`

@@ -1,4 +1,4 @@
-// src/components/DashboardSidebar/DashboardSidebar.jsx
+
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Home, Key, User, Crown, LogOut } from 'lucide-react';
@@ -16,6 +16,59 @@ export default function DashboardSidebar() {
     
     return userData ? JSON.parse(userData) : null;
   };
+
+  const checkAdminAccess = async () => {
+  try {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const storedUser = JSON.parse(localStorage.getItem('user') || sessionStorage.getItem('user'));
+
+    // ✅ ÖNCE: Frontend'de admin mi görünüyor? (Tuzak için)
+    console.log('� Frontend Role:', storedUser?.role);
+    
+    if (!token || !storedUser) {
+      navigate('/login');
+      return;
+    }
+
+    // ✅ ARKAPLAN: Backend'den gerçek kontrol
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/stats`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        // Backend'de admin değilse - TUZAK ORTAYA ÇIKTI!
+        console.log('� TUZAK ORTAYA ÇIKTI! Backend bu kullanıcıyı admin olarak tanımıyor.');
+        
+        // Eğlenceli mesaj
+        alert('Hey! Sen admin değilsin ki? � Nasıl buraya girdin?');
+        
+        // Kullanıcıyı normal dashboard'a yönlendir
+        navigate('/dashboard');
+        return;
+      }
+      
+      // Gerçek adminse devam et
+      const stats = await response.json();
+      setAdminStats(stats.stats);
+      
+    } catch (error) {
+      console.log('� Backend erişim hatası - Muhtemelen admin değil');
+      navigate('/dashboard');
+      return;
+    }
+
+    setUserData(storedUser);
+    
+  } catch (error) {
+    console.error("Admin access error:", error);
+    navigate('/login');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const userData = getUserData();
   const isAdmin = userData?.role === 'admin';
@@ -98,15 +151,16 @@ export default function DashboardSidebar() {
       {/* ✅ FOOTER - Admin Butonu ve Çıkış */}
       <div className="p-4 border-t border-slate-700 space-y-2">
         {/* ADMIN BUTONU - Sadece admin kullanıcılar için */}
-        {isAdmin && (
-          <button
-            onClick={handleGoToAdmin}
-            className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-all duration-200 border border-purple-500/30 group"
-          >
-            <Crown className="h-5 w-5" />
-            <span className="font-medium">Admin Menüye Geç</span>
-          </button>
-        )}
+       
+{isAdmin && (
+  <button
+    onClick={handleGoToAdmin}
+    className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-all duration-200 border border-purple-500/30 group"
+  >
+    <Crown className="h-5 w-5" />
+    <span className="font-medium">Admin Menüye Geç</span>
+  </button>
+)}
 
         {/* ÇIKIŞ BUTONU */}
         <button

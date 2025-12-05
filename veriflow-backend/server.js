@@ -1061,7 +1061,7 @@ app.get("/admin/licenses", verifyToken, (req, res) => {
   });
 });
 
-// ✅ KULLANICI ROLÜNÜ DEĞİŞTİR (ADMIN ONLY)
+// ✅ KULLANICI ROLÜNÜ DEĞİŞTİR (ADMIN ONLY) - GÜVENLİK EKLENDİ
 app.put("/admin/users/:id/role", verifyToken, (req, res) => {
   const admin_id = req.user.id;
   const target_user_id = req.params.id;
@@ -1072,7 +1072,7 @@ app.put("/admin/users/:id/role", verifyToken, (req, res) => {
   }
   
   // Admin kontrolü
-  db.query("SELECT role FROM users WHERE id = ?", [admin_id], (err, results) => {
+  db.query("SELECT role, email, fullname FROM users WHERE id = ?", [admin_id], (err, results) => {
     if (err || results.length === 0) {
       return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
     }
@@ -1081,26 +1081,177 @@ app.put("/admin/users/:id/role", verifyToken, (req, res) => {
       return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
     }
     
-    // Kendi rolünü değiştirmeyi engelle
+    const admin_email = results[0].email;
+    const admin_name = results[0].fullname;
+    
+    // ✅ KRİTİK: Kendi rolünü değiştirmeyi engelle + LOG
     if (parseInt(admin_id) === parseInt(target_user_id)) {
-      return res.status(400).json({ message: "Kendi rolünüzü değiştiremezsiniz!" });
+      console.log(`� HAYIRDIR! ${admin_name} (${admin_email}) kendi rolünü değiştirmeye çalıştı!`);
+      
+      // Özel log kaydı - SEN HAYIRDIR?
+      const logSql = `INSERT INTO security_logs (user_id, action, details, ip_address) 
+                     VALUES (?, 'SELF_ROLE_CHANGE_ATTEMPT', ?, ?)`;
+      const clientIP = getClientIP(req);
+      
+      db.query(logSql, [
+        admin_id, 
+        `${admin_name} (${admin_email}) kendi rolünü ${role} yapmaya çalıştı - SEN HAYIRDIR? �`, 
+        clientIP
+      ], (logErr) => {
+        if (logErr) {
+          console.error('❌ Security log kaydı hatası:', logErr);
+        } else {
+          console.log('✅ SEN HAYIRDIR logu kaydedildi!');
+        }
+      });
+      
+      return res.status(400).json({ 
+        message: "Kendi rolünüzü değiştiremezsiniz! Sen hayırdır? �" 
+      });
     }
     
-    // Kullanıcı rolünü güncelle
-    db.query("UPDATE users SET role = ? WHERE id = ?", [role, target_user_id], (err, result) => {
-      if (err) {
-        console.error('❌ User role update error:', err);
-        return res.status(500).json({ message: "Rol güncellenemedi!" });
+    // Hedef kullanıcıyı bul
+    db.query("SELECT email, fullname FROM users WHERE id = ?", [target_user_id], (err, targetResults) => {
+      if (err || targetResults.length === 0) {
+        return res.status(404).json({ message: "Hedef kullanıcı bulunamadı!" });
       }
       
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+      const target_email = targetResults[0].email;
+      const target_name = targetResults[0].fullname;
+      
+      // Kullanıcı rolünü güncelle
+      db.query("UPDATE users SET role = ? WHERE id = ?", [role, target_user_id], (err, result) => {
+        if (err) {
+          console.error('❌ User role update error:', err);
+          return res.status(500).json({ message: "Rol güncellenemedi!" });
+        }
+        
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+        }
+        
+        // ✅ Başarılı işlem logu
+        console.log(`✅ ${admin_name} (${admin_email}), ${target_name} (${target_email}) kullanıcısının rolünü ${role} yaptı`);
+        
+        const logSql = `INSERT INTO security_logs (user_id, action, details, ip_address) 
+                       VALUES (?, 'ROLE_CHANGE', ?, ?)`;
+        const clientIP = getClientIP(req);
+        
+        db.query(logSql, [
+          admin_id, 
+          `${admin_name} (${admin_email}) -> ${target_name} (${target_email}) rolünü ${role} yaptı`, 
+          clientIP
+        ], (logErr) => {
+          if (logErr) {
+            console.error('❌ Role change log kaydı hatası:', logErr);
+          } else {
+            console.log('✅ Rol değişikliği logu kaydedildi!');
+          }
+        });
+        
+        res.json({ 
+          message: `Kullanıcı rolü ${role} olarak güncellendi!`,
+          user_id: target_user_id,
+          new_role: role
+        });
+      });
+    });
+  });
+});
+
+
+app.post("/admin/tuzak", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+  const { action, details } = req.body;
+  const clientIP = getClientIP(req);
+  const userAgent = req.headers['user-agent'] || 'Unknown';
+  const deviceInfo = getDeviceInfo(req);
+  
+  console.log(`� TUZAK YAKALANDI! User ${user_id}: ${action} - ${details}`);
+  console.log(`� IP: ${clientIP}, Device: ${deviceInfo}`);
+  
+  // Kullanıcının gerçek rolünü kontrol et
+  db.query("SELECT email, role FROM users WHERE id = ?", [user_id], (err, userResults) => {
+    if (err) {
+      console.error('❌ User query error:', err);
+    }
+    
+    const realRole = userResults.length > 0 ? userResults[0].role : 'unknown';
+    const userEmail = userResults.length > 0 ? userResults[0].email : 'unknown';
+    
+    console.log(`� GERÇEK DURUM: ${userEmail} - DB Role: ${realRole}`);
+    
+    // Detaylı güvenlik log'una kaydet
+    const logSql = `INSERT INTO security_logs (user_id, action, details, ip_address, user_agent, device_info) 
+                   VALUES (?, ?, ?, ?, ?, ?)`;
+    
+    const fullDetails = `${details} | Gerçek DB Rolü: ${realRole} | IP: ${clientIP} | Device: ${deviceInfo}`;
+    
+    db.query(logSql, [user_id, action, fullDetails, clientIP, userAgent, deviceInfo], (err, result) => {
+      if (err) {
+        console.error('❌ Tuzak log hatası:', err);
+        return res.status(500).json({ message: "Log kaydedilemedi!" });
       }
+      
+      console.log(`✅ Tuzak log kaydedildi - Log ID: ${result.insertId}`);
+      
+      // ✅ KRİTİK UYARI - Console'da renkli mesaj
+      console.log(`%c� DİKKAT! ROL MANİPÜLASYONU TESPİT EDİLDİ!`, 
+        'color: red; font-size: 16px; font-weight: bold;');
+      console.log(`%cKullanıcı: ${userEmail}`, 'color: yellow;');
+      console.log(`%cIP: ${clientIP}`, 'color: yellow;');
+      console.log(`%cGerçek Rol: ${realRole}`, 'color: yellow;');
       
       res.json({ 
-        message: `Kullanıcı rolü ${role} olarak güncellendi!`,
-        user_id: target_user_id,
-        new_role: role
+        success: true,
+        message: "Tuzak loglandı! �",
+        log_id: result.insertId,
+        user_email: userEmail,
+        real_role: realRole
+      });
+    });
+  });
+});
+
+// ✅ GÜVENLİK LOGLARINI GETİREN ENDPOINT
+app.get("/admin/security-logs", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+  
+  console.log('� Security logs requested by user:', req.user.email);
+  
+  // Önce kullanıcının admin olup olmadığını kontrol et
+  db.query("SELECT role FROM users WHERE id = ?", [user_id], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+    }
+    
+    if (results[0].role !== 'admin') {
+      return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
+    }
+    
+    // Tüm güvenlik loglarını getir (kullanıcı bilgileriyle birlikte)
+    const sql = `
+      SELECT 
+        sl.*,
+        u.email as user_email,
+        u.fullname as user_name
+      FROM security_logs sl
+      LEFT JOIN users u ON sl.user_id = u.id
+      ORDER BY sl.created_at DESC
+      LIMIT 100
+    `;
+    
+    db.query(sql, (err, results) => {
+      if (err) {
+        console.error('❌ Security logs fetch error:', err);
+        return res.status(500).json({ message: "Loglar getirilemedi!" });
+      }
+      
+      console.log(`✅ ${results.length} security log returned`);
+      
+      res.json({
+        message: "Güvenlik logları getirildi",
+        logs: results
       });
     });
   });
@@ -1145,49 +1296,157 @@ app.delete("/admin/users/:id", verifyToken, (req, res) => {
   });
 });
 
-// ✅ ADMIN İSTATİSTİKLERİ
+// ✅ ADMIN İSTATİSTİKLERİ - TOKEN BASED
 app.get("/admin/stats", verifyToken, (req, res) => {
-  const user_id = req.user.id;
+  const user_role = req.user.role; // ✅ TOKEN'DAKI ROLE'Ü KULLAN
   
-  // Admin kontrolü
-  db.query("SELECT role FROM users WHERE id = ?", [user_id], (err, results) => {
-    if (err || results.length === 0) {
-      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
-    }
+  console.log('� ADMIN STATS - User:', req.user.email, 'Token Role:', user_role);
+  
+  // ✅ TOKEN'DAKI ROLE'Ü KONTROL ET (Database YERİNE)
+  if (user_role !== 'admin') {
+    console.log('❌ User is not admin in token');
+    return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
+  }
+  
+  console.log('✅ User is admin in token, proceeding...');
+  
+  // İstatistikleri getir
+  const statsQueries = {
+    total_users: "SELECT COUNT(*) as count FROM users",
+    total_licenses: "SELECT COUNT(*) as count FROM licenses",
+    active_licenses: "SELECT COUNT(*) as count FROM licenses WHERE is_active = true",
+    recent_users: "SELECT COUNT(*) as count FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+  };
+  
+  Promise.all(
+    Object.entries(statsQueries).map(([key, query]) => 
+      new Promise((resolve, reject) => {
+        db.query(query, (err, results) => {
+          if (err) reject(err);
+          else resolve({ [key]: results[0].count });
+        });
+      })
+    )
+  )
+  .then(results => {
+    const stats = Object.assign({}, ...results);
+    res.json({
+      message: "Admin istatistikleri getirildi",
+      stats: stats
+    });
+  })
+  .catch(error => {
+    console.error('❌ Admin stats error:', error);
+    res.status(500).json({ message: "İstatistikler getirilemedi!" });
+  });
+});
+
+// ✅ BU ENDPOINT'İ BACKEND DOSYANIN EN SONUNA EKLE
+// (app.listen'den önce)
+
+// ✅ ADMIN DOĞRULAMA ENDPOINT'İ - ÇALIŞTIĞINDAN EMİN OL
+app.get("/api/admin/verify", verifyToken, (req, res) => {
+  try {
+    console.log('� ADMIN VERIFY ENDPOINT CALLED');
+    console.log('� User from token:', req.user);
     
+    if (!req.user) {
+      console.log('❌ No user in token');
+      return res.status(401).json({ 
+        isAdmin: false,
+        message: "Token geçersiz!" 
+      });
+    }
+
+    // Sadece token'daki rolü kontrol et
+    if (req.user.role !== 'admin') {
+      console.log('❌ Token role is not admin:', req.user.role);
+      return res.status(403).json({ 
+        isAdmin: false,
+        message: "Admin yetkisi gerekli!" 
+      });
+    }
+
+    console.log('✅ ADMIN ACCESS GRANTED:', req.user.email);
+    
+    // Başarılı response
+    res.json({ 
+      isAdmin: true,
+      user: {
+        id: req.user.id,
+        email: req.user.email,
+        role: req.user.role
+      },
+      message: "Admin doğrulandı",
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Admin verify error:', error);
+    res.status(500).json({ 
+      isAdmin: false,
+      message: "Sunucu hatası!",
+      error: error.message 
+    });
+  }
+});
+
+// ✅ TEST ENDPOINT - Token debug için
+app.get("/api/test-token", verifyToken, (req, res) => {
+  res.json({
+    success: true,
+    user: req.user,
+    message: "Token çalışıyor!",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ✅ PUBLIC TEST ENDPOINT - Middleware olmadan
+app.get("/api/debug-headers", (req, res) => {
+  console.log('� DEBUG HEADERS:', req.headers);
+  res.json({
+    headers: req.headers,
+    authorization: req.headers.authorization
+  });
+});
+
+app.delete("/admin/licenses/:id", verifyToken, (req, res) => {
+  const admin_id = req.user.id;
+  const license_id = req.params.id;
+
+  // 1. Admin Yetki Kontrolü
+  db.query("SELECT role, email FROM users WHERE id = ?", [admin_id], (err, results) => {
+    if (err || results.length === 0) {
+      return res.status(404).json({ message: "Yönetici bulunamadı!" });
+    }
+
     if (results[0].role !== 'admin') {
       return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
     }
-    
-    // İstatistikleri getir
-    const statsQueries = {
-      total_users: "SELECT COUNT(*) as count FROM users",
-      total_licenses: "SELECT COUNT(*) as count FROM licenses",
-      active_licenses: "SELECT COUNT(*) as count FROM licenses WHERE is_active = true",
-      total_plans: "SELECT COUNT(*) as count FROM plans",
-      recent_users: "SELECT COUNT(*) as count FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
-    };
-    
-    Promise.all(
-      Object.entries(statsQueries).map(([key, query]) => 
-        new Promise((resolve, reject) => {
-          db.query(query, (err, results) => {
-            if (err) reject(err);
-            else resolve({ [key]: results[0].count });
-          });
-        })
-      )
-    )
-    .then(results => {
-      const stats = Object.assign({}, ...results);
-      res.json({
-        message: "Admin istatistikleri getirildi",
-        stats: stats
+
+    const adminEmail = results[0].email;
+
+    // 2. Lisansı Sil (Kullanıcı ID kontrolü yapmadan, direkt ID ile siliyoruz)
+    db.query("DELETE FROM licenses WHERE id = ?", [license_id], (err, result) => {
+      if (err) {
+        console.error('❌ Admin license delete error:', err);
+        return res.status(500).json({ message: "Lisans silinemedi!", error: err });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Lisans bulunamadı veya zaten silinmiş!" });
+      }
+
+      // 3. Güvenlik Logu Tut (Kim sildi?)
+      const clientIP = getClientIP(req);
+      const logSql = `INSERT INTO security_logs (user_id, action, details, ip_address) VALUES (?, 'ADMIN_DELETE_LICENSE', ?, ?)`;
+      
+      db.query(logSql, [admin_id, `Admin ${adminEmail}, ${license_id} ID'li lisansı sildi.`, clientIP], (logErr) => {
+          if(logErr) console.error("Log hatası:", logErr);
       });
-    })
-    .catch(error => {
-      console.error('❌ Admin stats error:', error);
-      res.status(500).json({ message: "İstatistikler getirilemedi!" });
+
+      console.log(`✅ Admin ${adminEmail}, ${license_id} ID'li lisansı başarıyla sildi.`);
+      res.json({ message: "Lisans başarıyla silindi!" });
     });
   });
 });
