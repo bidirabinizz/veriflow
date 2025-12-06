@@ -1,4 +1,4 @@
-// src/components/Licenses.jsx
+// src/components/DashboardSidebar/Licenses.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -12,9 +12,10 @@ import {
   RefreshCw,
   Search,
   Filter,
-  AlertCircle
+  AlertCircle,
+  Clock // ✅ Clock ikonu eklendi
 } from 'lucide-react';
-import { API_BASE_URL } from '../../config/api'; // ✅ BU IMPORT'U EKLE
+import { API_BASE_URL } from '../../config/api';
 
 export default function Licenses() {
   const navigate = useNavigate();
@@ -33,11 +34,10 @@ export default function Licenses() {
   const [filterHwid, setFilterHwid] = useState('all');
   const [userPlan, setUserPlan] = useState(null);
 
-  // ✅ PLAN BİLGİSİNİ GETİR - BU FONKSİYONU EKLE
+  // ✅ PLAN BİLGİSİNİ GETİR
   const fetchUserPlan = async () => {
     try {
       const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-      // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
       const response = await fetch(`${API_BASE_URL}/user/plan`, {
         headers: {
           "Authorization": `Bearer ${token}`
@@ -57,7 +57,6 @@ export default function Licenses() {
   const fetchLicenses = async () => {
     try {
       const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-      // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
       const response = await fetch(`${API_BASE_URL}/licenses`, {
         headers: {
           "Authorization": `Bearer ${token}`
@@ -76,12 +75,11 @@ export default function Licenses() {
     }
   };
 
-  // Yeni lisans oluştur - GÜNCELLENMİŞ
+  // Yeni lisans oluştur
   const createLicense = async (e) => {
     e.preventDefault();
     try {
       const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-      // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
       const response = await fetch(`${API_BASE_URL}/licenses`, {
         method: "POST",
         headers: {
@@ -108,22 +106,19 @@ export default function Licenses() {
       setShowCreateForm(false);
       setNewLicense({ license_key: '', expires_at: '', require_hwid: false });
       fetchLicenses(); // Listeyi yenile
-      
-      // ✅ PLAN BİLGİSİNİ YENİLE
-      fetchUserPlan();
+      fetchUserPlan(); // Plan bilgisini yenile
       
     } catch (error) {
       alert(error.message);
     }
   };
 
-  // Lisans sil - GÜNCELLENMİŞ
+  // Lisans sil
   const deleteLicense = async (licenseId) => {
     if (!confirm("Bu lisansı silmek istediğinizden emin misiniz?")) return;
 
     try {
       const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-      // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
       const response = await fetch(`${API_BASE_URL}/licenses/${licenseId}`, {
         method: "DELETE",
         headers: {
@@ -137,7 +132,6 @@ export default function Licenses() {
 
       alert(data.message);
       fetchLicenses();
-      // ✅ LİSANS SİLİNCE PLAN BİLGİSİNİ YENİLE
       fetchUserPlan();
     } catch (error) {
       alert(error.message);
@@ -161,7 +155,7 @@ export default function Licenses() {
     setNewLicense(prev => ({ ...prev, license_key: key }));
   };
 
-  // Manuel refresh - GÜNCELLENMİŞ
+  // Manuel refresh
   const handleRefresh = () => {
     setLoading(true);
     fetchLicenses();
@@ -192,7 +186,7 @@ export default function Licenses() {
 
   useEffect(() => {
     fetchLicenses();
-    fetchUserPlan(); // ✅ COMPONENT AÇILINCA PLAN BİLGİSİNİ ÇEK
+    fetchUserPlan();
   }, []);
 
   if (loading) {
@@ -205,7 +199,7 @@ export default function Licenses() {
 
   return (
     <div className="space-y-6">
-      {/* ✅ PLAN BİLGİSİ BANNER'INI EKLE */}
+      {/* Plan Bilgisi Banner */}
       {userPlan && (
         <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
           <div className="flex items-center justify-between">
@@ -445,67 +439,81 @@ export default function Licenses() {
                 </tr>
               </thead>
               <tbody>
-                {filteredLicenses.map((license) => (
-                  <tr key={license.id} className="border-b border-slate-700 hover:bg-slate-750 transition-colors">
-                    <td className="p-4">
-                      <div className="flex items-center space-x-2">
-                        <Key className="h-4 w-4 text-cyan-400" />
-                        <code className="text-sm font-mono">{license.license_key}</code>
-                        <button
-                          onClick={() => copyLicenseKey(license.license_key)}
-                          className="text-gray-400 hover:text-white transition-colors"
-                          title="Kopyala"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {license.is_active ? (
-                        <span className="flex items-center space-x-1 text-green-400">
-                          <CheckCircle className="h-4 w-4" />
-                          <span>Aktif</span>
-                        </span>
-                      ) : (
-                        <span className="flex items-center space-x-1 text-red-400">
-                          <XCircle className="h-4 w-4" />
-                          <span>Pasif</span>
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      {license.require_hwid ? (
-                        <span className="text-yellow-400">Gerekli</span>
-                      ) : (
-                        <span className="text-gray-400">Gerekmez</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-sm text-gray-300">
-                      {new Date(license.created_at).toLocaleDateString('tr-TR')}
-                    </td>
-                    <td className="p-4 text-sm text-gray-300">
-                      {license.expires_at ? new Date(license.expires_at).toLocaleDateString('tr-TR') : 'Süresiz'}
-                    </td>
-                    <td className="p-4">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => viewLicenseDetails(license.id)}
-                          className="text-cyan-400 hover:text-cyan-300 transition-colors"
-                          title="Detayları Gör"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteLicense(license.id)}
-                          className="text-red-400 hover:text-red-300 transition-colors"
-                          title="Sil"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filteredLicenses.map((license) => {
+                  // ✅ TARİH KONTROLÜ
+                  const isExpired = license.expires_at && new Date(license.expires_at) < new Date();
+
+                  return (
+                    <tr key={license.id} className="border-b border-slate-700 hover:bg-slate-750 transition-colors">
+                      <td className="p-4">
+                        <div className="flex items-center space-x-2">
+                          <Key className="h-4 w-4 text-cyan-400" />
+                          <code className="text-sm font-mono">{license.license_key}</code>
+                          <button
+                            onClick={() => copyLicenseKey(license.license_key)}
+                            className="text-gray-400 hover:text-white transition-colors"
+                            title="Kopyala"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        {isExpired ? (
+                          // ✅ SÜRE DOLMUŞSA
+                          <span className="flex items-center space-x-1 text-orange-400 bg-orange-400/10 px-2 py-1 rounded-full w-fit">
+                            <Clock className="h-4 w-4" />
+                            <span className="text-xs font-medium">Süresi Doldu</span>
+                          </span>
+                        ) : license.is_active ? (
+                          // ✅ AKTİFSE
+                          <span className="flex items-center space-x-1 text-green-400">
+                            <CheckCircle className="h-4 w-4" />
+                            <span>Aktif</span>
+                          </span>
+                        ) : (
+                          // ❌ PASİFSE
+                          <span className="flex items-center space-x-1 text-red-400">
+                            <XCircle className="h-4 w-4" />
+                            <span>Pasif</span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        {license.require_hwid ? (
+                          <span className="text-yellow-400">Gerekli</span>
+                        ) : (
+                          <span className="text-gray-400">Gerekmez</span>
+                        )}
+                      </td>
+                      <td className="p-4 text-sm text-gray-300">
+                        {new Date(license.created_at).toLocaleDateString('tr-TR')}
+                      </td>
+                      {/* ✅ TARİH SÜTUNU RENKLENDİRMESİ */}
+                      <td className={`p-4 text-sm ${isExpired ? 'text-orange-400 font-medium' : 'text-gray-300'}`}>
+                        {license.expires_at ? new Date(license.expires_at).toLocaleDateString('tr-TR') : 'Süresiz'}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => viewLicenseDetails(license.id)}
+                            className="text-cyan-400 hover:text-cyan-300 transition-colors"
+                            title="Detayları Gör"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteLicense(license.id)}
+                            className="text-red-400 hover:text-red-300 transition-colors"
+                            title="Sil"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

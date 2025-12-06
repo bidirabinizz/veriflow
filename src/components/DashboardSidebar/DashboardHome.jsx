@@ -47,21 +47,25 @@ export default function DashboardHome({ userData }) {
         }
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        
-        // İstatistikleri hesapla
-        const totalLicenses = data.licenses.length;
-        const activeLicenses = data.licenses.filter(l => l.is_active).length;
-        const hwidLocked = data.licenses.filter(l => l.require_hwid).length;
-        
-        setStats({
-          total: totalLicenses,
-          active: activeLicenses,
-          hwidLocked: hwidLocked,
-          inactive: totalLicenses - activeLicenses
-        });
-      }
+if (response.ok) {
+  const data = await response.json();
+  const allLicenses = data.licenses;
+  const now = new Date();
+
+  // Gerçekten aktif olanlar: DB'de aktif OLSUN + Süresi dolmamış OLSUN (veya süresiz olsun)
+  const activeLicenses = allLicenses.filter(l => 
+    l.is_active && (!l.expires_at || new Date(l.expires_at) > now)
+  ).length;
+
+  const totalLicenses = allLicenses.length;
+  // ... diğer hesaplamalar
+  
+  setStats({
+    total: totalLicenses,
+    active: activeLicenses, // Artık süresi dolanları aktif saymayacak
+    // ...
+  });
+}
     } catch (error) {
       console.error("İstatistik hatası:", error);
     } finally {

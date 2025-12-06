@@ -79,9 +79,11 @@ export default function AdminDashboard() {
         console.log('✅ GERÇEK ADMIN DOĞRULANDI');
         setIsRealAdmin(true);
         
-        // Gerçek istatistikleri getir
+       // Gerçek istatistikleri getir
         try {
-          const statsResponse = await fetch(`${API_BASE_URL}/api/admin/stats`, {
+          // 🔴 HATALI OLAN: fetch(`${API_BASE_URL}/api/admin/stats`, {
+          // 🟢 DOĞRUSU (Aşağıdaki satır):
+          const statsResponse = await fetch(`${API_BASE_URL}/admin/stats`, { 
             headers: {
               'Authorization': `Bearer ${token}`
             }

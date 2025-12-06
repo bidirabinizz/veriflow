@@ -1,15 +1,22 @@
 // src/components/AdminSidebar/LicenseManagement.jsx
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../../config/api';
-import { Search, Filter } from 'lucide-react'; // ✅ İkonlar eklendi
+import { 
+  Search, 
+  Filter, 
+  Clock, 
+  CheckCircle, 
+  XCircle,
+  Trash2
+} from 'lucide-react'; // ✅ İkonlar güncellendi
 
 export default function LicenseManagement() {
   const [licenses, setLicenses] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ YENİ STATE'LER: Filtreleme için
+  // Filtreleme State'leri
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'passive'
+  const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
     fetchLicenses();
@@ -64,26 +71,35 @@ export default function LicenseManagement() {
     }
   };
 
-  // ✅ FİLTRELEME MANTIĞI BURADA
+  // ✅ FİLTRELEME VE DURUM KONTROLÜ
   const filteredLicenses = licenses.filter(license => {
-    // 1. Arama Metni Kontrolü (Case insensitive)
+    // 1. Arama Kontrolü
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = 
       license.license_key.toLowerCase().includes(searchLower) ||
       license.user_name.toLowerCase().includes(searchLower) ||
       license.user_email.toLowerCase().includes(searchLower);
 
-    // 2. Durum Filtresi Kontrolü
+    // 2. Durum Kontrolü (Süresi dolanlar dahil)
+    const isExpired = license.expires_at && new Date(license.expires_at) < new Date();
+    
+    // Filtre mantığı:
+    // 'active' seçilirse: Aktif OLSUN VE Süresi dolmamış OLSUN
+    // 'passive' seçilirse: Pasif OLSUN VEYA Süresi dolmuş OLSUN
     const matchesStatus = 
       statusFilter === 'all' ? true :
-      statusFilter === 'active' ? license.is_active :
-      !license.is_active; // passive
+      statusFilter === 'active' ? (license.is_active && !isExpired) :
+      (!license.is_active || isExpired); 
 
     return matchesSearch && matchesStatus;
   });
 
   if (loading) {
-    return <div className="text-white">Lisanslar yükleniyor...</div>;
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="text-xl text-white">Lisanslar yükleniyor...</div>
+      </div>
+    );
   }
 
   return (
@@ -93,7 +109,7 @@ export default function LicenseManagement() {
         <span className="text-slate-400 text-sm">Toplam: {filteredLicenses.length} kayıt</span>
       </div>
       
-      {/* ✅ YENİ FİLTRELEME ALANI */}
+      {/* Filtreleme Alanı */}
       <div className="flex flex-col sm:flex-row gap-4">
         {/* Arama Inputu */}
         <div className="relative flex-1">
@@ -117,9 +133,8 @@ export default function LicenseManagement() {
           >
             <option value="all">Tüm Durumlar</option>
             <option value="active">Aktif Olanlar</option>
-            <option value="passive">Pasif Olanlar</option>
+            <option value="passive">Pasif / Süresi Dolanlar</option>
           </select>
-          {/* Custom Arrow Icon for Select */}
           <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
             <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
           </div>
@@ -135,42 +150,68 @@ export default function LicenseManagement() {
                 <th className="text-left p-3 text-slate-400 font-medium">Sahibi</th>
                 <th className="text-left p-3 text-slate-400 font-medium">Email</th>
                 <th className="text-left p-3 text-slate-400 font-medium">Oluşturulma</th>
+                <th className="text-left p-3 text-slate-400 font-medium">Bitiş Tarihi</th> {/* ✅ Yeni Sütun */}
                 <th className="text-left p-3 text-slate-400 font-medium">Durum</th>
                 <th className="text-right p-3 text-slate-400 font-medium">İşlemler</th>
               </tr>
             </thead>
-            {/* ✅ LİSTELEME İÇİN filteredLicenses KULLANILDI */}
             <tbody className="text-slate-200">
               {filteredLicenses.length > 0 ? (
-                filteredLicenses.map(license => (
-                  <tr key={license.id} className="border-b border-slate-700 hover:bg-slate-700/50 transition-colors group">
-                    <td className="p-3 font-mono text-xs text-cyan-400">{license.license_key}</td>
-                    <td className="p-3 font-medium">{license.user_name}</td>
-                    <td className="p-3 text-slate-400">{license.user_email}</td>
-                    <td className="p-3 text-slate-400">{new Date(license.created_at).toLocaleDateString('tr-TR')}</td>
-                    <td className="p-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${
-                        license.is_active 
-                          ? 'bg-green-500/10 text-green-400 border-green-500/20' 
-                          : 'bg-red-500/10 text-red-400 border-red-500/20'
-                      }`}>
-                        {license.is_active ? 'Aktif' : 'Pasif'}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <button 
-                        onClick={() => deleteLicense(license.id)}
-                        className="px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded transition-all duration-200 text-xs font-medium border border-red-500/20 hover:border-red-500"
-                      >
-                        Sil
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                filteredLicenses.map(license => {
+                  // ✅ TARİH KONTROLÜ
+                  const isExpired = license.expires_at && new Date(license.expires_at) < new Date();
+
+                  return (
+                    <tr key={license.id} className="border-b border-slate-700 hover:bg-slate-700/50 transition-colors group">
+                      <td className="p-3 font-mono text-xs text-cyan-400">{license.license_key}</td>
+                      <td className="p-3 font-medium">{license.user_name}</td>
+                      <td className="p-3 text-slate-400">{license.user_email}</td>
+                      <td className="p-3 text-slate-400">
+                        {new Date(license.created_at).toLocaleDateString('tr-TR')}
+                      </td>
+                      
+                      {/* ✅ Bitiş Tarihi Gösterimi */}
+                      <td className={`p-3 text-sm ${isExpired ? 'text-orange-400 font-medium' : 'text-slate-400'}`}>
+                        {license.expires_at 
+                          ? new Date(license.expires_at).toLocaleDateString('tr-TR') 
+                          : 'Süresiz'}
+                      </td>
+
+                      {/* ✅ Durum Gösterimi */}
+                      <td className="p-3">
+                        {isExpired ? (
+                          <span className="flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-medium border bg-orange-500/10 text-orange-400 border-orange-500/20 w-fit">
+                            <Clock className="h-3 w-3" />
+                            <span>Süresi Doldu</span>
+                          </span>
+                        ) : license.is_active ? (
+                          <span className="flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-medium border bg-green-500/10 text-green-400 border-green-500/20 w-fit">
+                            <CheckCircle className="h-3 w-3" />
+                            <span>Aktif</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-medium border bg-red-500/10 text-red-400 border-red-500/20 w-fit">
+                            <XCircle className="h-3 w-3" />
+                            <span>Pasif</span>
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="p-3 text-right">
+                        <button 
+                          onClick={() => deleteLicense(license.id)}
+                          className="px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded transition-all duration-200 text-xs font-medium border border-red-500/20 hover:border-red-500 flex items-center space-x-1 ml-auto"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          <span>Sil</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
-                /* ✅ HİÇ SONUÇ YOKSA GÖSTERİLECEK KISIM */
                 <tr>
-                  <td colSpan="6" className="text-center py-8 text-slate-500">
+                  <td colSpan="7" className="text-center py-8 text-slate-500">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <Search className="h-8 w-8 opacity-50" />
                       <p>Aradığınız kriterlere uygun lisans bulunamadı.</p>
@@ -181,7 +222,6 @@ export default function LicenseManagement() {
             </tbody>
           </table>
           
-          {/* Eğer tüm liste boşsa (filtreleme değil, hiç veri yoksa) */}
           {licenses.length === 0 && !loading && (
             <div className="text-center py-4 text-slate-500 text-sm mt-4">
               Sistemde henüz hiç lisans kaydı yok.
