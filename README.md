@@ -1,21 +1,15 @@
-<<<<<<< HEAD
-# React + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# VeriFlow Lisans Yönetim ve Kontrol Sistemi
 
-Currently, two official plugins are available:
+Bu proje ile geliştirici kişilerin kendi lisans kontrol sistemlerini kurmadan sadece bu uygulamayı kullanarak kullanıcı lisansı ekleyebileceği bir sistem yapmak temel amaçtır.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Herhangi bir açıklıkta sorumluluk kabul edilmemektedir. ❤️
 
-## React Compiler
+## Geri Bildirim
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Herhangi bir geri bildiriminiz varsa, lütfen bahadirbyktpc@gmail.com adresinden bize ulaşın.
 
-## Expanding the ESLint configuration
+  
+![Logo](https://static.vecteezy.com/system/resources/previews/026/397/439/large_2x/bns-letter-logo-design-in-illustration-logo-calligraphy-designs-for-logo-poster-invitation-etc-vector.jpg)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-=======
-# veriflow
-Kullanıcı lisans ekleme sistemi ve doğrulama sistemi
->>>>>>> a2af8d3ac785c86a6235bb79adc9c4cc0bda3e3f
+    
