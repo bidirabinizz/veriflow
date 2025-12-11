@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
-import axios from "axios";
 import { useTranslation } from 'react-i18next';
 import { API_BASE_URL } from '../config/api';
 
-
 export default function Login() {
-  const { t} = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     email: '',
@@ -22,14 +20,12 @@ export default function Login() {
   const validateForm = () => {
     const newErrors = {};
     
-    // Email validation
     if (!formData.email) {
       newErrors.email = 'Email gereklidir';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Geçerli bir email adresi giriniz';
     }
     
-    // Password validation
     if (!formData.password) {
       newErrors.password = 'Şifre gereklidir';
     } else if (formData.password.length < 6) {
@@ -40,65 +36,69 @@ export default function Login() {
     return Object.keys(newErrors).length === 0;
   };
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  
-  if (!validateForm()) return;
-
-  setIsLoading(true);
-  
-  try {
-    const response = await fetch(`${API_BASE_URL}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: formData.email, password: formData.password }),
-    });
-
-    const data = await response.json();
-    console.log("� BACKEND RESPONSE:", data);
-
-    if (!response.ok) {
-      throw new Error(data.message || "Giriş başarısız!");
-    }
-
-    // ✅ Kullanıcı verilerini al
-    let userData = data.user || {
-      id: data.userId || 1,
-      email: formData.email,
-      fullname: data.fullname || formData.email.split('@')[0],
-      role: data.role || 'user' // Backend'den role bilgisi gelmeli
-    };
-
-    console.log("� TOKEN:", data.token);
-    console.log("� USER:", userData);
-    console.log("� ROLE:", userData.role);
-
-    // ✅ Storage'a kaydet
-    if (rememberMe) {
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(userData));
-      localStorage.setItem("rememberMe", "true");
-    } else {
-      sessionStorage.setItem("token", data.token);
-      sessionStorage.setItem("user", JSON.stringify(userData));
-    }
-
-    alert("Giriş başarılı!");
-
-    // ✅ ROLE'A GÖRE YÖNLENDİRME - BURASI ÖNEMLİ!
-    if (userData.role === 'admin') {
-      navigate('/admin/dashboard'); // Admin paneli
-    } else {
-      navigate('/dashboard'); // Normal kullanıcı paneli
-    }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     
-  } catch (error) {
-    console.error("❌ LOGIN ERROR:", error.message);
-    alert(`Giriş başarısız: ${error.message}`);
-  } finally {
-    setIsLoading(false);
-  }
-};
+    if (!validateForm()) return;
+
+    setIsLoading(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email, password: formData.password }),
+      });
+
+      const data = await response.json();
+      console.log("🔍 BACKEND RESPONSE:", data);
+
+      // 🔥 BAKIM MODU KONTROLÜ (YENİ EKLENEN KISIM)
+      if (response.status === 503) {
+        navigate('/maintenance'); // Direkt bakım sayfasına yönlendir
+        return; // İşlemi burada kes
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || "Giriş başarısız!");
+      }
+
+      // ✅ Kullanıcı verilerini al
+      let userData = data.user || {
+        id: data.userId || 1,
+        email: formData.email,
+        fullname: data.fullname || formData.email.split('@')[0],
+        role: data.role || 'user'
+      };
+
+      console.log("🔑 TOKEN:", data.token);
+      console.log("👤 USER:", userData);
+      console.log("🛡️ ROLE:", userData.role);
+
+      // ✅ Storage'a kaydet
+      if (rememberMe) {
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(userData));
+        localStorage.setItem("rememberMe", "true");
+      } else {
+        sessionStorage.setItem("token", data.token);
+        sessionStorage.setItem("user", JSON.stringify(userData));
+      }
+
+      // ✅ ROLE'A GÖRE YÖNLENDİRME
+      if (userData.role === 'admin') {
+        navigate('/admin/dashboard'); 
+      } else {
+        navigate('/dashboard');
+      }
+      
+    } catch (error) {
+      console.error("❌ LOGIN ERROR:", error.message);
+      alert(`Giriş başarısız: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -106,7 +106,7 @@ const handleSubmit = async (e) => {
       ...prev,
       [name]: value
     }));
-    // Clear error when user starts typing
+    
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -207,26 +207,26 @@ const handleSubmit = async (e) => {
 
             {/* Remember & Forgot */}
             <div className="flex items-center justify-between">
-  <div className="flex items-center">
-    <input
-      id="remember"
-      name="remember"
-      type="checkbox"
-      checked={rememberMe} 
-      onChange={(e) => setRememberMe(e.target.checked)} 
-      className="h-4 w-4 rounded border-slate-600 bg-slate-900/50 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
-    />
-    <label htmlFor="remember" className="ml-2 block text-sm text-gray-300">
-      {t("beni_hatirla")}
-    </label>
-  </div>
-  <Link
-    to="/sifremiunuttum"
-    className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors duration-200"
-  >
-    {t("sifremi_unuttum")}
-  </Link>
-</div>
+              <div className="flex items-center">
+                <input
+                  id="remember"
+                  name="remember"
+                  type="checkbox"
+                  checked={rememberMe} 
+                  onChange={(e) => setRememberMe(e.target.checked)} 
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900/50 text-cyan-500 focus:ring-cyan-500 focus:ring-offset-slate-900"
+                />
+                <label htmlFor="remember" className="ml-2 block text-sm text-gray-300">
+                  {t("beni_hatirla")}
+                </label>
+              </div>
+              <Link
+                to="/sifremiunuttum"
+                className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors duration-200"
+              >
+                {t("sifremi_unuttum")}
+              </Link>
+            </div>
 
             {/* Submit Button */}
             <button

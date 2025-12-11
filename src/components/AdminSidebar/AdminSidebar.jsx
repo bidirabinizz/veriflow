@@ -8,7 +8,10 @@ import {
   Settings, 
   LogOut,
   Crown,
-  Shield 
+  Shield,
+  History,
+  MessageSquare,
+  Megaphone // ✅ İkon eklendi
 } from 'lucide-react';
 
 export default function AdminSidebar({ userData }) {
@@ -19,9 +22,11 @@ export default function AdminSidebar({ userData }) {
     { path: '/admin/dashboard', icon: LayoutDashboard, label: 'Admin Paneli' },
     { path: '/admin/dashboard/users', icon: Users, label: 'Kullanıcı Yönetimi' },
     { path: '/admin/dashboard/licenses', icon: Key, label: 'Lisans Yönetimi' },
+    { path: '/admin/dashboard/support', icon: MessageSquare, label: 'Destek Talepleri' },
+    { path: '/admin/dashboard/announcements', icon: Megaphone, label: 'Duyurular' }, // ✅ YENİ EKLENDİ
+    { path: '/admin/dashboard/activity-logs', icon: History, label: 'Aktivite Geçmişi' },
+    { path: '/admin/dashboard/security-logs', icon: Shield, label: 'Güvenlik Logları' },
     { path: '/admin/dashboard/profile', icon: Settings, label: 'Profil' },
-        { path: '/admin/dashboard/security-logs', icon: Shield, label: 'Güvenlik Logları' }, // ✅ YENİ
-
   ];
 
   const handleLogout = () => {
@@ -39,8 +44,7 @@ export default function AdminSidebar({ userData }) {
   };
 
   return (
-    // ✅ FIXED YERINE RELATIVE - NAVBAR ÇAKIŞMASIN
-    <div className="w-64 bg-slate-800 min-h-screen relative p-4">
+    <div className="w-64 bg-slate-800 min-h-screen relative p-4 border-r border-slate-700">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center space-x-3 mb-2">
@@ -53,20 +57,19 @@ export default function AdminSidebar({ userData }) {
           </div>
         </div>
         
-        {/* Kullanıcı Bilgisi */}
         {userData && (
           <div className="bg-slate-700/50 rounded-lg p-3 mt-4">
             <p className="text-white font-medium text-sm">{userData.fullname}</p>
             <p className="text-gray-400 text-xs">{userData.email}</p>
             <span className="inline-block mt-1 px-2 py-1 bg-purple-500/20 text-purple-300 rounded text-xs">
-              � Admin
+              👑 Admin
             </span>
           </div>
         )}
       </div>
 
       {/* Navigation Menu */}
-      <nav className="space-y-2">
+      <nav className="space-y-1">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
@@ -75,7 +78,7 @@ export default function AdminSidebar({ userData }) {
             <Link
               key={item.path}
               to={item.path}
-              className={`flex items-center space-x-3 px-3 py-3 rounded-lg transition-all duration-200 ${
+              className={`flex items-center space-x-3 px-3 py-3 rounded-lg transition-all duration-200 mb-1 ${
                 isActive
                   ? 'bg-purple-500/20 text-purple-300 border-l-4 border-purple-500'
                   : 'text-gray-400 hover:text-white hover:bg-slate-700/50'
@@ -88,7 +91,7 @@ export default function AdminSidebar({ userData }) {
         })}
       </nav>
 
-      {/* Footer Actions */}
+      {/* Footer */}
       <div className="absolute bottom-4 left-4 right-4 space-y-2">
         <button
           onClick={goToUserDashboard}

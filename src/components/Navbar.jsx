@@ -1,9 +1,11 @@
+// src/components/Navbar.jsx
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactCountryFlag from "react-country-flag";
 import { Crown, Zap, CheckCircle } from 'lucide-react';
-import { API_BASE_URL } from '../config/api'; // ✅ BU IMPORT'U EKLE
+import { API_BASE_URL } from '../config/api';
+import NotificationDropdown from './NotificationDropdown'; // ✅ Bildirim bileşeni import edildi
 
 export default function Navbar() {
   const location = useLocation();
@@ -57,7 +59,6 @@ export default function Navbar() {
   // ✅ PLAN BİLGİSİNİ GETİR
   const fetchUserPlan = async (token) => {
     try {
-      // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
       const response = await fetch(`${API_BASE_URL}/user/plan`, {
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -91,14 +92,12 @@ export default function Navbar() {
   // ✅ PROFİL FOTOĞRAFI URL'İ OLUŞTURMA
   const getAvatarUrl = (avatarPath) => {
     if (!avatarPath) return null;
-    // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
     return `${API_BASE_URL}${avatarPath}`;
   };
 
   // ✅ DATABASE'DEN AVATAR BİLGİSİNİ ÇEK
   const fetchUserAvatar = async (token) => {
     try {
-      // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
       const response = await fetch(`${API_BASE_URL}/profile`, {
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -107,7 +106,7 @@ export default function Navbar() {
 
       if (response.ok) {
         const data = await response.json();
-        console.log("�️ NAVBAR - Avatar data:", data.user?.avatar_path);
+        console.log("ℹ️ NAVBAR - Avatar data:", data.user?.avatar_path);
         
         if (data.user?.avatar_path) {
           setAvatarUrl(getAvatarUrl(data.user.avatar_path));
@@ -144,7 +143,6 @@ export default function Navbar() {
     }
   };
 
-  // ✅ GÜNCELLENMİŞ AUTH KONTROLÜ
   const checkAuthStatus = async () => {
     try {
       const rememberMe = localStorage.getItem("rememberMe") === "true";
@@ -155,54 +153,49 @@ export default function Navbar() {
         ? localStorage.getItem("user") 
         : sessionStorage.getItem("user");
       
-      console.log("� NAVBAR - Token check:", !!token);
-      
-      if (token && userData) {
-        try {
-          // ✅ DEĞİŞTİR: localhost yerine API_BASE_URL
-          const response = await fetch(`${API_BASE_URL}/dashboard`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${token}`,
-            },
-          });
-          
-          if (response.ok) {
-            const parsedUser = JSON.parse(userData);
-            setIsLoggedIn(true);
-            setUser(parsedUser);
-            
-            // ✅ AVATAR VE PLAN BİLGİSİNİ ÇEK
-            const dbUser = await fetchUserAvatar(token);
-            await fetchUserPlan(token);
-            
-            if (dbUser?.avatar_path) {
-              setAvatarUrl(getAvatarUrl(dbUser.avatar_path));
-            } else {
-              setAvatarUrl(null);
-            }
-            
-          } else {
-            console.log("� NAVBAR - Token geçersiz, temizleniyor...");
-            clearAuthData();
-          }
-        } catch (error) {
-          console.log("� NAVBAR - Token check error, logging out...");
-          clearAuthData();
-        }
-      } else {
+      if (!token || !userData) {
         setIsLoggedIn(false);
         setUser(null);
         setAvatarUrl(null);
         setUserPlan(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/dashboard`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          const parsedUser = JSON.parse(userData);
+          setIsLoggedIn(true);
+          setUser(parsedUser);
+          
+          const dbUser = await fetchUserAvatar(token);
+          await fetchUserPlan(token);
+          
+          if (dbUser?.avatar_path) {
+            setAvatarUrl(getAvatarUrl(dbUser.avatar_path));
+          }
+        } else {
+          if (response.status === 401 || response.status === 403) {
+            console.log("🚫 Token geçersiz, çıkış yapılıyor...");
+            clearAuthData();
+          } else {
+            console.warn("⚠️ Sunucu yanıt vermedi veya hata oluştu, ancak oturum korunuyor.");
+          }
+        }
+      } catch (networkError) {
+        console.warn("⚠️ Ağ hatası: Sunucuya ulaşılamıyor. Oturum açık kalacak.");
       }
     } catch (error) {
-      console.error("❌ NAVBAR ERROR:", error);
-      clearAuthData();
+      console.error("❌ Kritik Hata:", error);
     }
   };
 
-  // ✅ AUTH DATA TEMİZLEME
   const clearAuthData = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
@@ -265,6 +258,10 @@ export default function Navbar() {
           {isLoggedIn ? (
             // ✅ GİRİŞ YAPILMIŞSA - Kullanıcı Menüsü (AVATARLI + PLAN BİLGİLİ)
             <div className="flex items-center space-x-4">
+              
+              {/* ✅ YENİ: Bildirim Zili */}
+              <NotificationDropdown />
+
               <span className="text-gray-300 hidden md:block">
                 Hoş geldin, {user?.fullname || user?.email || 'Kullanıcı'}
               </span>
@@ -275,7 +272,6 @@ export default function Navbar() {
                   onClick={() => setOpenUserMenu(!openUserMenu)}
                   className="flex items-center space-x-2 bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition-colors duration-200"
                 >
-                  {/* ✅ AVATAR GÖRSELLİĞİ */}
                   <div className="w-8 h-8 rounded-full bg-cyan-500 flex items-center justify-center overflow-hidden border border-slate-400">
                     {avatarUrl ? (
                       <img 
@@ -283,7 +279,7 @@ export default function Navbar() {
                         alt="Profil" 
                         className="w-full h-full object-cover"
                         onError={(e) => {
-                          console.error('�️ Navbar avatar load failed');
+                          console.error('ℹ️ Navbar avatar load failed');
                           e.target.style.display = 'none';
                         }}
                       />
@@ -298,7 +294,6 @@ export default function Navbar() {
                 
                 {openUserMenu && (
                   <div className="absolute right-0 mt-2 w-64 bg-gray-800 rounded-lg shadow-lg z-50 border border-slate-700">
-                    {/* ✅ DROPDOWN HEADER - AVATAR + PLAN BİLGİSİ */}
                     <div className="px-4 py-3 border-b border-slate-700">
                       <div className="flex items-center space-x-3 mb-2">
                         <div className="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center overflow-hidden border border-slate-400">
@@ -327,7 +322,6 @@ export default function Navbar() {
                         </div>
                       </div>
                       
-                      {/* ✅ PLAN BİLGİSİ */}
                       {userPlan && (
                         <div className="flex items-center justify-between mt-2">
                           <div className="flex items-center space-x-2">
@@ -345,13 +339,12 @@ export default function Navbar() {
                       )}
                     </div>
                     
-                    {/* ✅ MENÜ LİNKLERİ */}
                     <Link 
                       to="/dashboard" 
                       className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
                       onClick={() => setOpenUserMenu(false)}
                     >
-                      <span>�</span>
+                      <span>🏠</span>
                       <span>Dashboard</span>
                     </Link>
                     
@@ -360,7 +353,7 @@ export default function Navbar() {
                       className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
                       onClick={() => setOpenUserMenu(false)}
                     >
-                      <span>�</span>
+                      <span>👤</span>
                       <span>Profilim</span>
                     </Link>
 
@@ -369,18 +362,17 @@ export default function Navbar() {
                       className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
                       onClick={() => setOpenUserMenu(false)}
                     >
-                      <span>�</span>
+                      <span>🔑</span>
                       <span>Lisanslarım</span>
                     </Link>
 
-                    {/* ✅ PLAN YÜKSELTME LİNKİ (Free plan'taysa) */}
                     {userPlan && userPlan.plan_name === 'Free' && (
                       <Link 
                         to="/fiyatlandirma" 
                         className="flex items-center space-x-2 px-4 py-2 text-sm text-cyan-400 hover:bg-gray-700 hover:text-cyan-300 border-t border-slate-700"
                         onClick={() => setOpenUserMenu(false)}
                       >
-                        <span>�</span>
+                        <span>🚀</span>
                         <span>Planını Yükselt</span>
                       </Link>
                     )}
@@ -390,7 +382,7 @@ export default function Navbar() {
                         onClick={handleLogout}
                         className="flex items-center space-x-2 w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300"
                       >
-                        <span>�</span>
+                        <span>🚪</span>
                         <span>Çıkış Yap</span>
                       </button>
                     </div>
@@ -426,7 +418,6 @@ export default function Navbar() {
               onClick={() => setOpenLang(!openLang)}
               className="flex items-center space-x-2 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-all duration-200 border border-transparent hover:border-cyan-500/30"
             >
-              {/* Mevcut dilin bayrağını göstermek için */}
               {i18n.language === 'tr' ? (
                 <ReactCountryFlag 
                   countryCode="TR" 
@@ -455,7 +446,6 @@ export default function Navbar() {
             
             {openLang && (
               <div className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-lg shadow-lg z-50 border border-slate-700 overflow-hidden">
-                {/* Türkçe dil Seçeneği */}
                 <button 
                   onClick={() => changeLanguage('tr')}
                   className={`flex items-center space-x-3 w-full text-left px-4 py-3 transition-all duration-200 ${
@@ -489,7 +479,6 @@ export default function Navbar() {
                   </div>
                 </button>
                 
-                {/* English dil Seçeneği */}
                 <button 
                   onClick={() => changeLanguage('en')}
                   className={`flex items-center space-x-3 w-full text-left px-4 py-3 transition-all duration-200 ${

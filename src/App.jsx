@@ -13,14 +13,16 @@ import NasilKullanilir from "./pages/NasilKullanilir";
 import SifremiUnuttum from "./pages/SifremiUnuttum";
 import LicenseDetail from './components/LicenseDetail';
 import AdminDashboard from './pages/AdminDashboard';
-
+import Status from './pages/Status'; 
+import Maintenance from './pages/Maintenance';
+import Support from "./pages/Support";
 
 function AuthWrapper({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    const publicPaths = ['/', '/login', '/register', '/fiyatlandirma', '/nasilkullanilir','/sifremiunuttum'];
+    const publicPaths = ['/', '/login', '/register', '/fiyatlandirma', '/nasilkullanilir','/sifremiunuttum', '/status', '/maintenance'];
     const isPublicPath = publicPaths.includes(location.pathname);
     
     const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -54,7 +56,9 @@ function App() {
             <Route path="/dashboard/*" element={<Dashboard />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />      
             <Route path="/admin/dashboard/*" element={<AdminDashboard />} />
-            
+            <Route path="/maintenance" element={<Maintenance />} />
+            <Route path="/status" element={<Status />} />
+            <Route path="/support" element={<Support />} />
           </Routes>
         </main>
         <Footer />

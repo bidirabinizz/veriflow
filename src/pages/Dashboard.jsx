@@ -5,7 +5,11 @@ import DashboardSidebar from '../components/DashboardSidebar/DashboardSidebar';
 import DashboardHome from '../components/DashboardSidebar/DashboardHome';
 import Licenses from '../components/DashboardSidebar/Licenses';
 import Profile from '../components/DashboardSidebar/Profile';
+import Istatistikler from '../components/DashboardSidebar/Istatistikler'; 
+import Support from './Support';
+import SupportDetail from './SupportDetail';
 import { API_BASE_URL } from '../config/api';
+import AnnouncementDisplay from '../components/AnnouncementDisplay'; // ✅ 1. Duyuru Bileşeni Import Edildi
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -24,7 +28,6 @@ export default function Dashboard() {
         return;
       }
 
-      // ✅ BU SATIRI DEĞİŞTİR: localhost yerine API_BASE_URL kullan
       const response = await fetch(`${API_BASE_URL}/dashboard`, {
         method: "GET",
         headers: {
@@ -64,17 +67,6 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("rememberMe");
-    sessionStorage.removeItem("token");
-    sessionStorage.removeItem("user");
-    window.dispatchEvent(new Event('authChange'));
-    navigate('/');
-    window.location.reload();
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 text-white pt-20 flex items-center justify-center">
@@ -84,19 +76,27 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
+    // ✅ 2. Layout Düzenlemesi: "h-screen" ve "overflow-hidden" ile sayfa sabitlendi.
+    <div className="h-screen bg-slate-900 text-white overflow-hidden relative">
     
+      {/* ✅ 3. Duyuru Bileşeni Eklendi */}
+      <AnnouncementDisplay />
+
       {/* Main Layout */}
-      <div className=" flex">
+      <div className="flex h-full"> {/* h-full eklendi */}
         {/* Sidebar */}
         <DashboardSidebar />
         
         {/* Main Content */}
-        <div className="flex-1 p-6">
+        {/* ✅ 4. İçerik Alanı: Scroll sadece burada çalışır ("overflow-y-auto") */}
+        <div className="flex-1 p-6 overflow-y-auto h-full pb-20">
           <Routes>
             <Route path="/" element={<DashboardHome userData={userData} />} />
             <Route path="/licenses" element={<Licenses />} />
             <Route path="/profile" element={<Profile userData={userData} />} />
+            <Route path="/istatistikler" element={<Istatistikler />} /> 
+            <Route path="/support" element={<Support />} />
+            <Route path="/support/:id" element={<SupportDetail />} />
           </Routes>
         </div>
       </div>

@@ -7,6 +7,9 @@ import UserManagement from '../components/AdminSidebar/UserManagement';
 import LicenseManagement from '../components/AdminSidebar/LicenseManagement';
 import AdminProfile from '../components/AdminSidebar/AdminProfile';
 import SecurityLogs from '../components/AdminSidebar/SecurityLogs';
+import ActivityLogs from '../components/AdminSidebar/ActivityLogs';
+import AdminSupport from '../components/AdminSidebar/AdminSupport';
+import AdminAnnouncements from '../components/AdminSidebar/AdminAnnouncements'; // ✅ İMPORT EKLENDİ
 import { API_BASE_URL } from '../config/api';
 
 export default function AdminDashboard() {
@@ -211,8 +214,11 @@ export default function AdminDashboard() {
           } />
           <Route path="/users" element={<UserManagement isRealAdmin={isRealAdmin} />} />
           <Route path="/licenses" element={<LicenseManagement isRealAdmin={isRealAdmin} />} />
+          <Route path="/announcements" element={<AdminAnnouncements />} /> {/* ✅ ROUTE EKLENDİ */}
           <Route path="/security-logs" element={<SecurityLogs isRealAdmin={isRealAdmin} />} />
           <Route path="/profile" element={<AdminProfile userData={userData} isRealAdmin={isRealAdmin} />} />
+          <Route path="/activity-logs" element={<ActivityLogs />} />
+          <Route path="/support" element={<AdminSupport />} /> 
         </Routes>
       </div>
     </div>

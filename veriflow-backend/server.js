@@ -8,11 +8,16 @@ import { verifyToken } from "./middleware/auth.js";
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto'; // ✅ Bunu ekle
-
+import crypto from 'crypto';
+import cron from 'node-cron';
+import os from 'os';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 const app = express();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // giriş yapan ipleri görmek için önemli
 app.set('trust proxy', true);
@@ -52,6 +57,14 @@ const getClientIP = (req) => {
   }
   
   return ip || 'unknown';
+};
+
+const logActivity = (userId, action, details, ipAddress) => {
+  const sql = "INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)";
+  db.query(sql, [userId, action, details, ipAddress], (err, result) => {
+    if (err) console.error("❌ Log kaydı başarısız:", err);
+    else console.log(`� Aktivite loglandı: ${action}`);
+  });
 };
 
 const getDeviceInfo = (req) => {
@@ -137,120 +150,109 @@ app.get("/plans", (req, res) => {
 });
 
 // 📌 KAYIT OL - OTOMATİK FREE PLAN ATAMA
-// 📌 KAYIT OL - OTOMATİK FREE PLAN ATAMA (GÜNCELLENMİŞ)
 app.post("/register", (req, res) => {
   const { fullname, email, password } = req.body;
-  
   const clientIP = getClientIP(req);
   const deviceInfo = getDeviceInfo(req);
   
-  console.log(`📝 REGISTER ATTEMPT - IP: ${clientIP}, Email: ${email}`);
-  
-  if (!fullname || !email || !password)
-    return res.status(400).json({ message: "Eksik bilgi!" });
+  if (!fullname || !email || !password) return res.status(400).json({ message: "Eksik bilgi!" });
 
-  // Önce Free plan'ın ID'sini bul
   db.query("SELECT id FROM plans WHERE name = 'Free'", (err, planResults) => {
-    if (err) {
-      console.error("❌ Plan query error:", err);
-      return res.status(500).json({ message: "Sistem hatası!" });
-    }
-    
-    if (planResults.length === 0) {
-      console.error("❌ Free plan bulunamadı!");
-      return res.status(500).json({ message: "Sistem hatası!" });
-    }
+    if (err || planResults.length === 0) return res.status(500).json({ message: "Free plan bulunamadı!" });
 
     const freePlanId = planResults[0].id;
 
     db.query("SELECT * FROM users WHERE email = ?", [email], (err, results) => {
-      if (err) {
-        console.error("❌ Register database error:", err);
-        return res.status(500).json({ message: "Database hatası", error: err });
-      }
-      
-      if (results.length > 0) {
-        return res.status(400).json({ message: "Bu email zaten kayıtlı!" });
-      }
+      if (err) return res.status(500).json({ message: "DB hatası" });
+      if (results.length > 0) return res.status(400).json({ message: "Bu email kayıtlı!" });
 
       const hash = bcrypt.hashSync(password, 10);
-      
-      // Free plan ile kullanıcı oluştur
       const sql = "INSERT INTO users (fullname, email, password_hash, plan_id) VALUES (?, ?, ?, ?)";
       
       db.query(sql, [fullname, email, hash, freePlanId], (err, result) => {
-        if (err) {
-          console.error("❌ Register insert error:", err);
-          return res.status(500).json({ message: "Kayıt hatası", error: err });
-        }
+        if (err) return res.status(500).json({ message: "Kayıt hatası" });
         
-        // ✅ Başarılı kayıt logu
         const newUserId = result.insertId;
         logLoginAttempt(newUserId, clientIP, deviceInfo, 'success');
         
-        console.log(`✅ Yeni kullanıcı Free plan ile oluşturuldu: ${email}, Plan ID: ${freePlanId}`);
+        // 🔔 BİLDİRİM
+        sendNotification(newUserId, "Hoş Geldin! 🎉", "VeriFlow ailesine katıldığın için teşekkürler.", "success");
         
-        res.json({ 
-          message: "Kayıt başarılı! Free plan aktif edildi.",
-          plan: "Free"
-        });
+        res.json({ message: "Kayıt başarılı!", plan: "Free" });
       });
     });
   });
 });
 
-// 📌 Giriş Yap
+// ✅ GİRİŞ YAP (BAKIM MODU DESTEKLİ)
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
   
   const clientIP = getClientIP(req);
   const deviceInfo = getDeviceInfo(req);
   
-  console.log(`🔐 LOGIN ATTEMPT - IP: ${clientIP}, Device: ${deviceInfo}`);
+  console.log(`� LOGIN ATTEMPT - IP: ${clientIP}, Device: ${deviceInfo}`);
   
   if (!email || !password) {
     return res.status(400).json({ message: "Email ve şifre gereklidir!" });
   }
-  
-  db.query("SELECT * FROM users WHERE email = ?", [email], (err, results) => {
-    if (err) {
-      console.log("❌ DATABASE ERROR:", err);
-      return res.status(500).json({ message: "Database hatası", error: err });
-    }
-    
-    if (results.length === 0) {
-      logLoginAttempt(null, clientIP, deviceInfo, 'failed');
-      return res.status(400).json({ message: "Kullanıcı bulunamadı" });
-    }
 
-    const user = results[0];
-    const isMatch = bcrypt.compareSync(password, user.password_hash);
+  // 1. Önce Bakım Modu Ayarını Çek
+  db.query("SELECT setting_value FROM settings WHERE setting_key = 'maintenance_mode'", (settingErr, settingResults) => {
+    // Eğer veritabanı hatası olursa veya ayar yoksa bakım modu 'kapalı' varsayalım
+    const maintenanceMode = settingResults && settingResults.length > 0 && settingResults[0].setting_value === 'true';
 
-    if (!isMatch) {
-      logLoginAttempt(user.id, clientIP, deviceInfo, 'failed');
-      return res.status(401).json({ message: "Şifre hatalı" });
-    }
-
-    const token = jwt.sign({ 
-      id: user.id, 
-      email: user.email,
-      role: user.role,
-      fullname: user.fullname 
-    }, process.env.JWT_SECRET, {
-      expiresIn: "2h",
-    });
-
-    logLoginAttempt(user.id, clientIP, deviceInfo, 'success');
-
-    res.json({ 
-      message: "Giriş başarılı", 
-      token,
-      user: {
-        id: user.id,
-        role: user.role,
-        email: user.email,
-        fullname: user.fullname
+    // 2. Kullanıcıyı Bul
+    db.query("SELECT * FROM users WHERE email = ?", [email], (err, results) => {
+      if (err) {
+        console.log("❌ DATABASE ERROR:", err);
+        return res.status(500).json({ message: "Database hatası", error: err });
       }
+      
+      if (results.length === 0) {
+        logLoginAttempt(null, clientIP, deviceInfo, 'failed');
+        return res.status(400).json({ message: "Kullanıcı bulunamadı" });
+      }
+
+      const user = results[0];
+
+      // � BAKIM MODU KONTROLÜ (KRİTİK NOKTA)
+      // Eğer bakım modu açıksa VE kullanıcı admin DEĞİLSE => İçeri alma!
+      if (maintenanceMode && user.role !== 'admin') {
+        console.log(`⛔ Bakım modu aktif. Kullanıcı (${user.email}) girişi engellendi.`);
+        return res.status(503).json({ message: "Sistem şu an bakımda! Lütfen daha sonra tekrar deneyin." });
+      }
+
+      // 3. Şifre Kontrolü
+      const isMatch = bcrypt.compareSync(password, user.password_hash);
+
+      if (!isMatch) {
+        logLoginAttempt(user.id, clientIP, deviceInfo, 'failed');
+        return res.status(401).json({ message: "Şifre hatalı" });
+      }
+
+      // 4. Token Oluşturma
+      const token = jwt.sign({ 
+        id: user.id, 
+        email: user.email,
+        role: user.role,
+        fullname: user.fullname 
+      }, process.env.JWT_SECRET, {
+        expiresIn: "2h",
+      });
+
+      logLoginAttempt(user.id, clientIP, deviceInfo, 'success');
+
+      res.json({ 
+        message: "Giriş başarılı", 
+        token,
+        user: {
+          id: user.id,
+          role: user.role,
+          email: user.email,
+          fullname: user.fullname
+        }
+      });
     });
   });
 });
@@ -313,10 +315,11 @@ app.get("/user/plan", verifyToken, (req, res) => {
   });
 });
 
-// 📌 YENİ LİSANS OLUŞTURMA - LİMİT KONTROLLÜ
+// ✅ YENİ LİSANS OLUŞTURMA (LOGLU VERSİYON)
 app.post("/licenses", verifyToken, (req, res) => {
   const { license_key, expires_at, require_hwid = false } = req.body;
   const user_id = req.user.id;
+  const clientIP = getClientIP(req); // IP adresini alıyoruz
 
   if (!license_key) {
     return res.status(400).json({ message: "Lisans key gereklidir!" });
@@ -338,7 +341,7 @@ app.post("/licenses", verifyToken, (req, res) => {
     const licenseLimit = results[0].license_limit || 5;
     const currentLicenses = results[0].current_licenses || 0;
 
-    console.log(`📊 Lisans kontrolü: ${currentLicenses}/${licenseLimit}`);
+    console.log(`� Lisans kontrolü: ${currentLicenses}/${licenseLimit}`);
 
     // Lisans limit kontrolü
     if (currentLicenses >= licenseLimit) {
@@ -360,7 +363,15 @@ app.post("/licenses", verifyToken, (req, res) => {
         return res.status(500).json({ message: "Database hatası!", error: err });
       }
       
-      // Aktivite logu
+      // ✅ YENİ EKLENEN KISIM: AKTİVİTE LOGU KAYDI
+      logActivity(
+        user_id,
+        "LISANS_OLUSTURULDU",
+        `Kullanıcı yeni bir lisans oluşturdu. Key: ${license_key}`,
+        clientIP
+      );
+
+      // (Eski log tablosunu da bozmamak için bırakıyoruz)
       db.query(
         "INSERT INTO license_activity (license_id, activity_type, activity_detail) VALUES (?, 'created', 'Yeni lisans oluşturuldu')",
         [result.insertId]
@@ -381,34 +392,18 @@ app.post("/upgrade-plan", verifyToken, (req, res) => {
   const { plan_id } = req.body;
   const user_id = req.user.id;
 
-  if (!plan_id) {
-    return res.status(400).json({ message: "Plan ID gereklidir!" });
-  }
-
-  // Plan var mı kontrol et
-  db.query("SELECT * FROM plans WHERE id = ?", [plan_id], (err, results) => {
-    if (err || results.length === 0) {
-      return res.status(404).json({ message: "Plan bulunamadı!" });
-    }
-
-    const newPlan = results[0];
-
-    // Kullanıcının planını güncelle
-    db.query("UPDATE users SET plan_id = ? WHERE id = ?", [plan_id, user_id], (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: "Plan güncelleme hatası!", error: err });
-      }
-
-      console.log(`✅ Kullanıcı planı güncellendi: ${user_id} -> ${newPlan.name}`);
+  db.query("SELECT name FROM plans WHERE id = ?", [plan_id], (err, plans) => {
+    if (err || plans.length === 0) return res.status(404).json({ message: "Plan yok" });
+    
+    db.query("UPDATE users SET plan_id = ? WHERE id = ?", [plan_id, user_id], (err) => {
+      if (err) return res.status(500).json({ message: "Hata" });
       
-      res.json({ 
-        message: `Plan başarıyla ${newPlan.name} olarak güncellendi!`,
-        new_plan: newPlan.name,
-        license_limit: newPlan.license_limit
-      });
+      // 🔔 BİLDİRİM
+      sendNotification(user_id, "Plan Yükseltildi 🚀", `Tebrikler! Yeni planınız: ${plans[0].name}`, "success");
+      res.json({ message: "Plan güncellendi!" });
     });
   });
-});
+}); 
 
 // ✅ DİĞER ENDPOINT'LER AYNI KALIYOR
 
@@ -509,19 +504,32 @@ app.get("/licenses", verifyToken, (req, res) => {
   });
 });
 
+// ✅ KULLANICI LİSANS SİLME (LOGLU)
 app.delete("/licenses/:id", verifyToken, (req, res) => {
   const license_id = req.params.id;
   const user_id = req.user.id;
+  const clientIP = getClientIP(req);
   
-  db.query("SELECT id FROM licenses WHERE id = ? AND user_id = ?", [license_id, user_id], (err, results) => {
+  // Önce silinecek lisansın key'ini alalım (Log için)
+  db.query("SELECT license_key FROM licenses WHERE id = ? AND user_id = ?", [license_id, user_id], (err, results) => {
     if (err || results.length === 0) {
       return res.status(404).json({ message: "Lisans bulunamadı!" });
     }
+    
+    const licenseKey = results[0].license_key;
     
     db.query("DELETE FROM licenses WHERE id = ?", [license_id], (err, result) => {
       if (err) {
         return res.status(500).json({ message: "Silme hatası!", error: err });
       }
+      
+      // ✅ AKTİVİTE LOGU
+      logActivity(
+        user_id,
+        "LISANS_SILINDI",
+        `Kullanıcı ${licenseKey} anahtarlı lisansı sildi.`,
+        clientIP
+      );
       
       res.json({ message: "Lisans başarıyla silindi!" });
     });
@@ -553,16 +561,20 @@ app.get("/licenses/:id", verifyToken, (req, res) => {
   });
 });
 
+/// ✅ KULLANICI LİSANS GÜNCELLEME (LOGLU)
 app.put("/licenses/:id", verifyToken, (req, res) => {
   const license_id = req.params.id;
   const user_id = req.user.id;
   const { is_active, require_hwid, expires_at } = req.body;
+  const clientIP = getClientIP(req);
   
-  db.query("SELECT id FROM licenses WHERE id = ? AND user_id = ?", [license_id, user_id], (err, results) => {
+  // Önce lisansın key'ini alalım ki loga yazabilelim
+  db.query("SELECT license_key FROM licenses WHERE id = ? AND user_id = ?", [license_id, user_id], (err, results) => {
     if (err || results.length === 0) {
       return res.status(404).json({ message: "Lisans bulunamadı!" });
     }
     
+    const licenseKey = results[0].license_key;
     const sql = `UPDATE licenses SET is_active = ?, require_hwid = ?, expires_at = ? WHERE id = ?`;
     
     db.query(sql, [is_active, require_hwid, expires_at, license_id], (err, result) => {
@@ -570,9 +582,12 @@ app.put("/licenses/:id", verifyToken, (req, res) => {
         return res.status(500).json({ message: "Güncelleme hatası!", error: err });
       }
       
-      db.query(
-        "INSERT INTO license_activity (license_id, activity_type, activity_detail) VALUES (?, 'updated', 'Lisans güncellendi')",
-        [license_id]
+      // ✅ GENEL AKTİVİTE LOGU
+      logActivity(
+        user_id,
+        "LISANS_GUNCELLENDI",
+        `Kullanıcı ${licenseKey} lisansını güncelledi. (Aktif: ${is_active}, HWID Kilidi: ${require_hwid})`,
+        clientIP
       );
       
       res.json({ message: "Lisans başarıyla güncellendi!" });
@@ -580,9 +595,11 @@ app.put("/licenses/:id", verifyToken, (req, res) => {
   });
 });
 
+// ✅ KULLANICI HWID SIFIRLAMA (LOGLU)
 app.post("/licenses/:id/reset-hwid", verifyToken, (req, res) => {
   const license_id = req.params.id;
   const user_id = req.user.id;
+  const clientIP = getClientIP(req);
   
   db.query("SELECT id, license_key, hwid FROM licenses WHERE id = ? AND user_id = ?", [license_id, user_id], (err, results) => {
     if (err || results.length === 0) {
@@ -595,10 +612,13 @@ app.post("/licenses/:id/reset-hwid", verifyToken, (req, res) => {
       if (err) {
         return res.status(500).json({ message: "HWID sıfırlama hatası!", error: err });
       }
-      
-      db.query(
-        "INSERT INTO license_activity (license_id, activity_type, activity_detail) VALUES (?, 'hwid_reset', ?)",
-        [license_id, `HWID sıfırlandı. Eski HWID: ${license.hwid || 'Yok'}`]
+
+      // ✅ GENEL AKTİVİTE LOGU
+      logActivity(
+        user_id,
+        "HWID_SIFIRLANDI",
+        `Kullanıcı ${license.license_key} lisansının HWID adresini sıfırladı.`,
+        clientIP
       );
       
       res.json({ 
@@ -917,11 +937,30 @@ app.post("/api/verify-license", verifyApiKey, (req, res) => {
     if (results.length === 0) {
       return res.json({
         success: false,
-        error: "Geçersiz lisans key!"
+        error: "Geçersiz veya pasif lisans key!"
       });
     }
     
     const license = results[0];
+
+    // ✅ SÜRE KONTROLÜ VE OTOMATİK PASİFE ÇEKME
+    // Eğer süresi dolmuşsa (expires_at bugünden küçükse)
+    if (license.expires_at && new Date(license.expires_at) < new Date()) {
+      
+      // Veritabanında is_active = 0 yap
+      db.query("UPDATE licenses SET is_active = 0 WHERE id = ?", [license.id], (updateErr) => {
+        if (updateErr) {
+          console.error("❌ Lisans pasife çekilirken hata:", updateErr);
+        } else {
+          console.log(`ℹ️ Lisans ID ${license.id} süresi dolduğu için pasife çekildi.`);
+        }
+      });
+
+      return res.json({
+        success: false,
+        error: "Lisans süresi dolmuş!"
+      });
+    }
     
     // HWID kontrolü
     if (license.require_hwid) {
@@ -953,14 +992,6 @@ app.post("/api/verify-license", verifyApiKey, (req, res) => {
           [license.id, `HWID ile aktif edildi: ${hwid}`]
         );
       }
-    }
-    
-    // Süre kontrolü
-    if (license.expires_at && new Date(license.expires_at) < new Date()) {
-      return res.json({
-        success: false,
-        error: "Lisans süresi dolmuş!"
-      });
     }
     
     res.json({
@@ -1261,34 +1292,45 @@ app.get("/admin/security-logs", verifyToken, (req, res) => {
 app.delete("/admin/users/:id", verifyToken, (req, res) => {
   const admin_id = req.user.id;
   const target_user_id = req.params.id;
-  
+  const clientIP = getClientIP(req); // IP adresini alıyoruz
+
   // Admin kontrolü
-  db.query("SELECT role FROM users WHERE id = ?", [admin_id], (err, results) => {
+  db.query("SELECT role, email, fullname FROM users WHERE id = ?", [admin_id], (err, results) => {
     if (err || results.length === 0) {
-      return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
+      return res.status(404).json({ message: "Yönetici bulunamadı!" });
     }
-    
+
     if (results[0].role !== 'admin') {
       return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
     }
-    
-    // Kendini silmeyi engelle
+
+    const adminEmail = results[0].email; // Log için admin emailini alalım
+
+    // Kendini silmeyi engel      nnnnnnnnnnnnnnnn n      v bv bbv cvle
     if (parseInt(admin_id) === parseInt(target_user_id)) {
       return res.status(400).json({ message: "Kendinizi silemezsiniz!" });
     }
-    
+
     // Kullanıcıyı sil
     db.query("DELETE FROM users WHERE id = ?", [target_user_id], (err, result) => {
       if (err) {
         console.error('❌ User delete error:', err);
         return res.status(500).json({ message: "Kullanıcı silinemedi!" });
       }
-      
+
       if (result.affectedRows === 0) {
         return res.status(404).json({ message: "Kullanıcı bulunamadı!" });
       }
-      
-      res.json({ 
+
+      // ✅ BURAYI EKLE: Başarılı silme işleminden sonra log tutuyoruz
+      logActivity(
+        admin_id,
+        "KULLANICI_SILINDI",
+        `Admin (${adminEmail}) tarafından ID: ${target_user_id} olan kullanıcı silindi.`,
+        clientIP
+      );
+
+      res.json({
         message: "Kullanıcı başarıyla silindi!",
         user_id: target_user_id
       });
@@ -1410,44 +1452,518 @@ app.get("/api/debug-headers", (req, res) => {
   });
 });
 
+// ✅ YÖNETİCİ LİSANS SİLME (BİLDİRİMLİ & LOGLU VERSİYON)
 app.delete("/admin/licenses/:id", verifyToken, (req, res) => {
   const admin_id = req.user.id;
   const license_id = req.params.id;
+  const clientIP = getClientIP(req);
 
   // 1. Admin Yetki Kontrolü
-  db.query("SELECT role, email FROM users WHERE id = ?", [admin_id], (err, results) => {
-    if (err || results.length === 0) {
-      return res.status(404).json({ message: "Yönetici bulunamadı!" });
-    }
+  db.query("SELECT role, email, fullname FROM users WHERE id = ?", [admin_id], (err, results) => {
+    if (err || results.length === 0) return res.status(404).json({ message: "Yönetici bulunamadı!" });
+    if (results[0].role !== 'admin') return res.status(403).json({ message: "Yetkisiz işlem!" });
 
-    if (results[0].role !== 'admin') {
-      return res.status(403).json({ message: "Bu işlem için yetkiniz yok!" });
-    }
+    const adminInfo = `${results[0].fullname} (${results[0].email})`;
 
-    const adminEmail = results[0].email;
-
-    // 2. Lisansı Sil (Kullanıcı ID kontrolü yapmadan, direkt ID ile siliyoruz)
-    db.query("DELETE FROM licenses WHERE id = ?", [license_id], (err, result) => {
-      if (err) {
-        console.error('❌ Admin license delete error:', err);
-        return res.status(500).json({ message: "Lisans silinemedi!", error: err });
-      }
-
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Lisans bulunamadı veya zaten silinmiş!" });
-      }
-
-      // 3. Güvenlik Logu Tut (Kim sildi?)
-      const clientIP = getClientIP(req);
-      const logSql = `INSERT INTO security_logs (user_id, action, details, ip_address) VALUES (?, 'ADMIN_DELETE_LICENSE', ?, ?)`;
+    // 2. Silinecek Lisansın Bilgisini Al (Hem key hem de sahibi lazım)
+    db.query("SELECT license_key, user_id FROM licenses WHERE id = ?", [license_id], (err, licenseResults) => {
+      if (err || licenseResults.length === 0) return res.status(404).json({ message: "Lisans bulunamadı!" });
       
-      db.query(logSql, [admin_id, `Admin ${adminEmail}, ${license_id} ID'li lisansı sildi.`, clientIP], (logErr) => {
-          if(logErr) console.error("Log hatası:", logErr);
-      });
+      const { license_key, user_id } = licenseResults[0];
 
-      console.log(`✅ Admin ${adminEmail}, ${license_id} ID'li lisansı başarıyla sildi.`);
-      res.json({ message: "Lisans başarıyla silindi!" });
+      // 3. Lisansı Sil
+      db.query("DELETE FROM licenses WHERE id = ?", [license_id], (err, result) => {
+        if (err) return res.status(500).json({ message: "Silme hatası!" });
+
+        // ✅ LOG KAYDI
+        logActivity(
+          admin_id,
+          "LISANS_SILINDI",
+          `Yönetici ${adminInfo}, ${license_key} anahtarlı lisansı sildi.`,
+          clientIP
+        );
+
+        // ✅ BİLDİRİM GÖNDERME
+        sendNotification(
+          user_id, 
+          "Lisansınız Silindi ⚠️", 
+          `"${license_key}" anahtarlı lisansınız bir yönetici tarafından silindi.`, 
+          "warning"
+        );
+
+        res.json({ message: "Lisans başarıyla silindi, loglandı ve kullanıcıya bildirildi!" });
+      });
     });
+  });
+});
+
+// ✅ KULLANICI İSTATİSTİKLERİ ENDPOINT'İ
+app.get("/user/statistics", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+
+  // 1. Son 30 Günlük API Kullanımı
+  const apiUsageSql = `
+    SELECT 
+      DATE(aul.timestamp) as date, 
+      COUNT(*) as count 
+    FROM api_usage_logs aul
+    JOIN api_keys ak ON aul.api_key_id = ak.id
+    WHERE ak.user_id = ? AND aul.timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    GROUP BY DATE(aul.timestamp)
+    ORDER BY date ASC
+  `;
+
+  // 2. Son Lisans Aktiviteleri (Oluşturma, Silme vb.)
+  const activitySql = `
+    SELECT la.activity_type, la.activity_detail, la.created_at, l.license_key
+    FROM license_activity la
+    JOIN licenses l ON la.license_id = l.id
+    WHERE l.user_id = ?
+    ORDER BY la.created_at DESC
+    LIMIT 10
+  `;
+
+  // 3. Genel Özet Sayılar
+  const summarySql = `
+    SELECT 
+      (SELECT COUNT(*) FROM licenses WHERE user_id = ?) as total_licenses,
+      (SELECT COUNT(*) FROM licenses WHERE user_id = ? AND is_active = 1) as active_licenses,
+      (SELECT COUNT(*) FROM api_keys WHERE user_id = ?) as total_api_keys
+  `;
+
+  db.query(apiUsageSql, [user_id], (err, usageResults) => {
+    if (err) {
+      console.error("Stats API Usage Error:", err);
+      // Hata olsa bile boş dizi dönelim ki sayfa patlamasın
+      usageResults = []; 
+    }
+
+    db.query(activitySql, [user_id], (err, activityResults) => {
+      if (err) {
+        console.error("Stats Activity Error:", err);
+        activityResults = [];
+      }
+
+      db.query(summarySql, [user_id, user_id, user_id], (err, summaryResults) => {
+        if (err) {
+          console.error("Stats Summary Error:", err);
+          return res.status(500).json({ error: "İstatistikler alınamadı" });
+        }
+
+        res.json({
+          api_usage: usageResults,
+          recent_activities: activityResults,
+          summary: summaryResults[0] || { total_licenses: 0, active_licenses: 0, total_api_keys: 0 }
+        });
+      });
+    });
+  });
+});
+
+app.get("/api/status", (req, res) => {
+  // 1. Veritabanını Kontrol Et
+  db.query("SELECT 1", (err, result) => {
+    if (err) {
+      // Veritabanı cevap vermiyor ama API çalışıyor
+      return res.json({
+        api_status: "online", // API ayakta
+        db_status: "offline", // Veritabanı patlak
+        message: "Veritabanı bağlantısı kurulamadı!"
+      });
+    }
+    
+    // Her şey yolunda
+    res.json({
+      api_status: "online",
+      db_status: "online",
+      message: "Tüm sistemler operasyonel."
+    });
+  });
+});
+
+// ✅ AKTİVİTE LOGLARINI GETİR (Admin Only)
+app.get("/admin/activity-logs", verifyToken, (req, res) => {
+  // Sadece admin görebilir
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: "Yetkisiz erişim!" });
+  }
+
+  const sql = `
+    SELECT 
+      al.*, 
+      u.fullname as user_name, 
+      u.email as user_email 
+    FROM activity_logs al
+    LEFT JOIN users u ON al.user_id = u.id
+    ORDER BY al.created_at DESC
+    LIMIT 100
+  `;
+
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json({ message: "Loglar alınamadı" });
+    res.json({ logs: results });
+  });
+});
+
+// --- BAKIM MODU ENDPOINTLERİ ---
+
+// 1. Bakım Durumunu Kontrol Et (Herkes için)
+app.get("/api/maintenance", (req, res) => {
+  db.query("SELECT setting_value FROM settings WHERE setting_key = 'maintenance_mode'", (err, results) => {
+    if (err) return res.status(500).json({ error: "DB Hatası" });
+    
+    // Eğer kayıt yoksa veya 'false' ise bakım kapalıdır
+    const isActive = results.length > 0 && results[0].setting_value === 'true';
+    res.json({ active: isActive });
+  });
+});
+
+// 2. Bakım Modunu Aç/Kapa (Sadece Admin)
+app.post("/admin/maintenance", verifyToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "Yetkisiz!" });
+  
+  const { active } = req.body; // true veya false gelir
+  const value = active ? 'true' : 'false';
+  
+  // Varsa güncelle, yoksa ekle (Upsert mantığı)
+  const sql = "INSERT INTO settings (setting_key, setting_value) VALUES ('maintenance_mode', ?) ON DUPLICATE KEY UPDATE setting_value = ?";
+  
+  db.query(sql, [value, value], (err, result) => {
+    if (err) return res.status(500).json({ message: "Hata oluştu" });
+    
+    logActivity(req.user.id, "BAKIM_MODU", `Bakım modu ${active ? 'AÇILDI' : 'KAPATILDI'}`, getClientIP(req));
+    res.json({ message: `Bakım modu ${active ? 'aktif edildi' : 'kapatıldı'}` });
+  });
+});
+
+// ==========================================
+// 📨 DESTEK SİSTEMİ (Ticket)
+// ==========================================
+
+// Kullanıcının Biletlerini Getir
+app.get("/tickets", verifyToken, (req, res) => {
+  db.query("SELECT * FROM tickets WHERE user_id = ? ORDER BY updated_at DESC", [req.user.id], (err, results) => {
+    if (err) return res.status(500).json({ message: "Hata" });
+    res.json({ tickets: results });
+  });
+});
+
+// Yeni Bilet Oluştur
+app.post("/tickets", verifyToken, (req, res) => {
+  const { subject, priority, message } = req.body;
+  const user_id = req.user.id;
+
+  if (!subject || !message) return res.status(400).json({ message: "Konu ve mesaj gereklidir!" });
+
+  db.query("INSERT INTO tickets (user_id, subject, priority) VALUES (?, ?, ?)", 
+    [user_id, subject, priority || 'medium'], 
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "Hata" });
+      
+      const ticketId = result.insertId;
+      db.query("INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES (?, ?, ?)", 
+        [ticketId, user_id, message], 
+        (msgErr) => {
+          if (msgErr) return res.status(500).json({ message: "Mesaj kaydedilemedi" });
+          
+          logActivity(user_id, "TICKET_OLUSTURULDU", `Yeni destek talebi: ${subject}`, getClientIP(req));
+          res.json({ message: "Destek talebi oluşturuldu!", ticketId });
+        }
+      );
+    }
+  );
+});
+
+// Bilet Detaylarını Getir
+app.get("/tickets/:id", verifyToken, (req, res) => {
+  const ticketId = req.params.id;
+  const userId = req.user.id;
+  const isAdmin = req.user.role === 'admin';
+
+  let sqlCheck = "SELECT t.*, u.fullname, u.email FROM tickets t JOIN users u ON t.user_id = u.id WHERE t.id = ?";
+  if (!isAdmin) sqlCheck += " AND t.user_id = ?";
+  
+  db.query(sqlCheck, isAdmin ? [ticketId] : [ticketId, userId], (err, ticketResult) => {
+    if (err || ticketResult.length === 0) return res.status(404).json({ message: "Bilet bulunamadı" });
+
+    db.query(`SELECT tm.*, u.fullname, u.role, u.avatar_path FROM ticket_messages tm JOIN users u ON tm.user_id = u.id WHERE tm.ticket_id = ? ORDER BY tm.created_at ASC`, 
+      [ticketId], 
+      (msgErr, messages) => {
+        res.json({ ticket: ticketResult[0], messages });
+      });
+  });
+});
+
+// 4. Bilete Cevap Yaz (GÜNCELLENMİŞ - BİLDİRİM DÜZELTİLDİ)
+app.post("/tickets/:id/reply", verifyToken, (req, res) => {
+  const ticketId = req.params.id;
+  const { message } = req.body;
+  const senderId = req.user.id;
+  const isAdmin = req.user.role === 'admin';
+
+  if (!message) return res.status(400).json({ message: "Mesaj boş olamaz!" });
+
+  // 1. Önce biletin sahibini bulalım
+  db.query("SELECT user_id, subject FROM tickets WHERE id = ?", [ticketId], (findErr, ticketResults) => {
+    if (findErr || ticketResults.length === 0) {
+      return res.status(404).json({ message: "Bilet bulunamadı" });
+    }
+
+    const ticketOwnerId = ticketResults[0].user_id;
+    const ticketSubject = ticketResults[0].subject;
+
+    // 2. Mesajı veritabanına ekle
+    db.query("INSERT INTO ticket_messages (ticket_id, user_id, message) VALUES (?, ?, ?)", 
+      [ticketId, senderId, message], 
+      (err) => {
+        if (err) return res.status(500).json({ message: "Hata oluştu" });
+
+        // 3. Durumu güncelle: Admin yazdıysa 'answered', User yazdıysa 'open'
+        const newStatus = isAdmin ? 'answered' : 'open';
+        db.query("UPDATE tickets SET status = ?, updated_at = NOW() WHERE id = ?", [newStatus, ticketId]);
+
+        // ✅ 4. BİLDİRİM GÖNDERME MANTIĞI (DÜZELTİLDİ)
+        // Eğer cevap veren kişi Admin ise VE cevap veren kişi bilet sahibi değilse -> Bilet sahibine bildirim gönder
+        if (isAdmin && senderId !== ticketOwnerId) {
+          sendNotification(
+            ticketOwnerId, 
+            "Destek Talebi Yanıtlandı 📩", 
+            `"${ticketSubject}" konulu destek talebinize bir yetkili yanıt verdi.`, 
+            "success"
+          );
+          console.log(`Bildirim tetiklendi: User ID ${ticketOwnerId}`); // Debug için log
+        }
+
+        res.json({ message: "Cevap gönderildi" });
+      }
+    );
+  });
+});
+
+// 5. Bileti Kapat (Admin)
+app.put("/admin/tickets/:id/close", verifyToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "Yetkisiz" });
+  db.query("UPDATE tickets SET status = 'closed' WHERE id = ?", [req.params.id], () => {
+    logActivity(req.user.id, "TICKET_KAPATILDI", `Bilet kapatıldı: ${req.params.id}`, getClientIP(req));
+    res.json({ message: "Bilet kapatıldı" });
+  });
+});
+
+// 6. Tüm Biletleri Getir (Admin)
+app.get("/admin/tickets", verifyToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "Yetkisiz" });
+  
+  const sql = `
+    SELECT t.*, u.fullname, u.email, 
+    (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message
+    FROM tickets t 
+    JOIN users u ON t.user_id = u.id 
+    ORDER BY t.updated_at DESC
+  `;
+  
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json({ message: "Hata" });
+    res.json({ tickets: results });
+  });
+});
+
+cron.schedule('* * * * *', () => {
+  console.log('⏰ Lisans süresi kontrolü çalışıyor...');
+  
+  const sql = `
+    UPDATE licenses 
+    SET is_active = 0, 
+        last_check = NOW() 
+    WHERE expires_at < NOW() AND is_active = 1
+  `;
+
+  db.query(sql, (err, result) => {
+    if (err) {
+      console.error('❌ Cron Job Hatası:', err);
+    } else if (result.affectedRows > 0) {
+      console.log(`✅ ${result.affectedRows} adet süresi dolmuş lisans pasife çekildi.`);
+      
+      // İsteğe bağlı: Bu işlem için log tutabilirsin
+      // db.query("INSERT INTO system_logs ...") 
+    } else {
+      console.log('👍 Süresi dolup açık kalan lisans bulunamadı.');
+    }
+  });
+});
+
+//sistem sağlığını kontrol etme
+app.get("/api/admin/health", verifyToken, (req, res) => {
+  // Sadece admin erişebilir
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: "Yetkisiz erişim!" });
+  }
+
+  const startTime = Date.now();
+  
+  // 1. Veritabanı Bağlantı Testi ve Gecikme (Latency) Ölçümü
+  db.query("SELECT 1", (err, result) => {
+    const dbLatency = Date.now() - startTime;
+    const dbStatus = err ? 'offline' : 'online';
+
+    // 2. Sistem Bellek Kullanımı
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const memUsage = Math.round((usedMem / totalMem) * 100);
+
+    // 3. Sunucu Uptime (Çalışma Süresi)
+    const uptime = os.uptime(); // Saniye cinsinden
+    const uptimeHours = Math.floor(uptime / 3600);
+    const uptimeMinutes = Math.floor((uptime % 3600) / 60);
+
+    // 4. CPU Load (Ortalama Yük - 1 dk'lık)
+    // Windows'ta loadavg bazen 0 dönebilir, Linux/Mac için daha anlamlıdır.
+    const loadAvg = os.loadavg(); 
+    const cpuLoad = loadAvg ? loadAvg[0].toFixed(2) : 0;
+
+    res.json({
+      success: true,
+      system: {
+        status: 'online', // API cevap veriyorsa onlinedır
+        uptime: `${uptimeHours}sa ${uptimeMinutes}dk`,
+        platform: os.platform() + ' ' + os.release(),
+        cpu_load: cpuLoad
+      },
+      database: {
+        status: dbStatus,
+        latency: dbLatency + 'ms'
+      },
+      memory: {
+        used: (usedMem / 1024 / 1024).toFixed(0) + ' MB',
+        total: (totalMem / 1024 / 1024).toFixed(0) + ' MB',
+        percentage: memUsage
+      },
+      timestamp: new Date().toISOString()
+    });
+  });
+});
+
+// ✅ BİLDİRİM SİSTEMİ ENDPOINT'LERİ
+
+// 1. Bildirimleri Getir
+app.get("/notifications", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+  
+  db.query(
+    "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 20", 
+    [user_id], 
+    (err, results) => {
+      if (err) return res.status(500).json({ message: "Veritabanı hatası" });
+      
+      // Okunmamış sayısını da hesapla
+      db.query(
+        "SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = FALSE",
+        [user_id],
+        (countErr, countResults) => {
+          res.json({
+            notifications: results,
+            unread_count: countResults[0].count
+          });
+        }
+      );
+    }
+  );
+});
+
+// 2. Bildirimi Okundu İşaretle
+app.put("/notifications/:id/read", verifyToken, (req, res) => {
+  const notification_id = req.params.id;
+  const user_id = req.user.id;
+  
+  db.query(
+    "UPDATE notifications SET is_read = TRUE WHERE id = ? AND user_id = ?", 
+    [notification_id, user_id],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "Hata oluştu" });
+      res.json({ success: true });
+    }
+  );
+});
+
+// 3. Tümünü Okundu İşaretle
+app.put("/notifications/read-all", verifyToken, (req, res) => {
+  const user_id = req.user.id;
+  
+  db.query(
+    "UPDATE notifications SET is_read = TRUE WHERE user_id = ?", 
+    [user_id],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "Hata oluştu" });
+      res.json({ success: true, message: "Tümü okundu işaretlendi" });
+    }
+  );
+});
+
+// 4. Bildirimi Sil
+app.delete("/notifications/:id", verifyToken, (req, res) => {
+  const notification_id = req.params.id;
+  const user_id = req.user.id;
+  
+  db.query(
+    "DELETE FROM notifications WHERE id = ? AND user_id = ?", 
+    [notification_id, user_id],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "Hata oluştu" });
+      res.json({ success: true, message: "Bildirim silindi" });
+    }
+  );
+});
+
+// ✅ YARDIMCI FONKSİYON: BİLDİRİM GÖNDER (Bunu kodun içinde herhangi bir yerde kullanabilirsin)
+const sendNotification = (userId, title, message, type = 'info') => {
+  const sql = "INSERT INTO notifications (user_id, title, message, type) VALUES (?, ?, ?, ?)";
+  db.query(sql, [userId, title, message, type], (err) => {
+    if (err) console.error("Bildirim oluşturma hatası:", err);
+    else console.log(`Bildirim gönderildi -> User: ${userId}`);
+  });
+};
+
+// ==========================================
+// 📢 DUYURU SİSTEMİ (ANNOUNCEMENTS)
+// ==========================================
+
+// 1. Duyuru Oluştur (Admin)
+app.post("/admin/announcements", verifyToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "Yetkisiz" });
+  const { title, message, type } = req.body; // type: 'popup' veya 'banner'
+  
+  if (!title || !message) return res.status(400).json({ message: "Başlık ve mesaj gerekli!" });
+
+  db.query("INSERT INTO announcements (title, message, type) VALUES (?, ?, ?)", 
+    [title, message, type || 'popup'], 
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "Veritabanı hatası" });
+      
+      // İstersen log tutabilirsin
+      logActivity(req.user.id, "DUYURU_OLUSTURULDU", `Başlık: ${title} (${type})`, getClientIP(req));
+      res.json({ message: "Duyuru başarıyla yayınlandı!" });
+    }
+  );
+});
+
+// 2. Aktif Duyuruları Getir (Kullanıcılar İçin)
+app.get("/announcements", verifyToken, (req, res) => {
+  // Sadece aktif olanları getir
+  db.query("SELECT * FROM announcements WHERE is_active = 1 ORDER BY created_at DESC", (err, results) => {
+    if (err) return res.status(500).json({ message: "Hata" });
+    res.json({ announcements: results });
+  });
+});
+
+// 3. Duyuruyu Kaldır/Pasif Yap (Admin)
+app.delete("/admin/announcements/:id", verifyToken, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "Yetkisiz" });
+  
+  // Tamamen silmek yerine is_active=0 yaparak arşivde tutuyoruz (tercihen)
+  // Tamamen silmek istersen DELETE sorgusu kullanabilirsin.
+  db.query("UPDATE announcements SET is_active = 0 WHERE id = ?", [req.params.id], (err) => {
+    if (err) return res.status(500).json({ message: "Hata" });
+    res.json({ message: "Duyuru yayından kaldırıldı." });
   });
 });
 

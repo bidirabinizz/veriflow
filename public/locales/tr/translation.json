@@ -67,7 +67,8 @@
   "login": "Giriş Yapın",
   "back_home": "Ana Sayfaya Dön",
   "and": "ve",
-  
+  "sistem_saglik": "raw debug admin",
+
   "error_name_required": "İsim gereklidir",
   "error_name_short": "İsim en az 2 karakter olmalıdır",
   "error_email_required": "Email gereklidir",
