@@ -723,47 +723,52 @@ app.get("/api/keys", verifyToken, (req, res) => {
 });
 
 
-// 📌 YENİ API KEY OLUŞTURMA
+// 📌 YENİ API KEY OLUŞTURMA (TEK KEY MANTIĞI)
 app.post("/api/keys", verifyToken, (req, res) => {
   const user_id = req.user.id;
   const { name } = req.body;
   
-  if (!name || name.trim().length === 0) {
-    return res.status(400).json({ message: "API Key adı gereklidir!" });
-  }
+  // İsim zorunluluğunu kaldırabiliriz çünkü tek key olacak, ama kalsın varsayılan atarız.
+  const keyName = name || "Main API Key";
   
-  // ✅ Rastgele API Key oluştur - crypto.randomBytes kullan
+  // ✅ Rastgele API Key oluştur
   const generateApiKey = () => {
     const prefix = 'cw_';
-    const randomPart = crypto.randomBytes(24).toString('hex'); // ✅ crypto import edildi
+    const randomPart = crypto.randomBytes(24).toString('hex');
     return prefix + randomPart;
   };
   
   const api_key = generateApiKey();
   const key_value = bcrypt.hashSync(api_key, 10); // Key'i hash'le
   
-  const sql = `
-    INSERT INTO api_keys (user_id, name, api_key, key_value) 
-    VALUES (?, ?, ?, ?)
-  `;
-  
-  db.query(sql, [user_id, name.trim(), api_key, key_value], (err, result) => {
-    if (err) {
-      console.error('❌ API Key creation error:', err);
-      if (err.code === 'ER_DUP_ENTRY') {
-        return res.status(400).json({ message: "Bu API Key zaten mevcut, lütfen tekrar deneyin!" });
-      }
-      return res.status(500).json({ message: "API Key oluşturulamadı!" });
+  // 1. ADIM: Önce kullanıcının eski keylerini sil (Temizlik)
+  db.query("DELETE FROM api_keys WHERE user_id = ?", [user_id], (deleteErr) => {
+    if (deleteErr) {
+      console.error('❌ Old API Keys cleanup error:', deleteErr);
+      return res.status(500).json({ message: "Eski anahtarlar temizlenirken hata oluştu!" });
     }
+
+    // 2. ADIM: Yeni key'i oluştur
+    const sql = `
+      INSERT INTO api_keys (user_id, name, api_key, key_value) 
+      VALUES (?, ?, ?, ?)
+    `;
     
-    res.json({
-      message: "API Key başarıyla oluşturuldu! Bu key'i güvenli bir yere kaydedin.",
-      api_key: {
-        id: result.insertId,
-        name: name.trim(),
-        api_key: api_key, // Sadece oluşturulduğunda göster
-        created_at: new Date()
+    db.query(sql, [user_id, keyName, api_key, key_value], (err, result) => {
+      if (err) {
+        console.error('❌ API Key creation error:', err);
+        return res.status(500).json({ message: "API Key oluşturulamadı!" });
       }
+      
+      res.json({
+        message: "API Key başarıyla yenilendi! Eski anahtarınız artık geçersiz.",
+        api_key: {
+          id: result.insertId,
+          name: keyName,
+          api_key: api_key, // Sadece oluşturulduğunda göster
+          created_at: new Date()
+        }
+      });
     });
   });
 });
