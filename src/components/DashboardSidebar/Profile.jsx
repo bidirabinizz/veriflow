@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Mail, Calendar, Save, Edit, Camera, Loader2, Key, Copy, Trash2, Plus, Eye, EyeOff, ToggleLeft, ToggleRight, Code, AlertTriangle, RefreshCw } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 import { FaPython, FaJs, FaPhp } from 'react-icons/fa';
-import { SiCurl } from 'react-icons/si';
+import { SiCurl, SiC, SiCplusplus } from 'react-icons/si'; // ✅ C ve C++ ikonları eklendi
 
 export default function Profile({ userData: initialUserData, onLogout }) {
   const [editMode, setEditMode] = useState(false);
@@ -82,7 +82,6 @@ export default function Profile({ userData: initialUserData, onLogout }) {
   const createApiKey = async (e) => {
     if (e) e.preventDefault();
     
-    // Otomatik isim atıyoruz, kullanıcıya sormuyoruz artık
     const keyName = "Main API Key";
 
     try {
@@ -106,13 +105,11 @@ export default function Profile({ userData: initialUserData, onLogout }) {
         throw new Error(data.message || 'API Key oluşturulamadı!');
       }
 
-      // Başarılı olduğunda
       setNewKeyName('');
       setShowCreateForm(false);
       
       if (data.api_key) {
         setNewlyCreatedKey(data.api_key);
-        // Yeni key'i otomatik görünür yap
         setRevealedKeys(prev => ({
           ...prev,
           [data.api_key.id]: true
@@ -187,11 +184,6 @@ export default function Profile({ userData: initialUserData, onLogout }) {
   // ✅ API KEY KOPYALA
   const copyApiKey = async (keyValue, keyId) => {
     try {
-      // Eğer gizliyse önce göster (kullanıcı ne kopyaladığını görsün diye opsiyonel)
-      if (!revealedKeys[keyId] && keyId !== 'new') {
-        // setRevealedKeys(prev => ({ ...prev, [keyId]: true }));
-      }
-      
       await navigator.clipboard.writeText(keyValue);
       setCopiedKeyId(keyId);
       
@@ -213,24 +205,19 @@ export default function Profile({ userData: initialUserData, onLogout }) {
     }));
   };
 
-  // ✅ COMPONENT MOUNT OLUNCA VERİLERİ ÇEK
   useEffect(() => {
     fetchProfileFromDB();
     fetchApiKeys();
   }, []);
 
-  // ✅ AVATAR URL OLUŞTURMA
   const getAvatarUrl = () => {
     if (avatarPreview) return avatarPreview;
-    
     if (dbUserData?.avatar_path) {
       return `${API_BASE_URL}${dbUserData.avatar_path}`;
     }
-    
     return null;
   };
 
-  // ✅ AVATAR UPLOAD HANDLER
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -286,7 +273,6 @@ export default function Profile({ userData: initialUserData, onLogout }) {
     }
   };
 
-  // ✅ PROFİL GÜNCELLEME
   const updateProfile = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -319,14 +305,13 @@ export default function Profile({ userData: initialUserData, onLogout }) {
 
   const displayUserData = dbUserData || initialUserData;
 
-  // ✅ API KEY FORMATINI MASKELE
   const maskApiKey = (key) => {
     if (!key) return '';
     if (key.length <= 8) return '•'.repeat(key.length);
     return key.substring(0, 8) + '•'.repeat(key.length - 8);
   };
 
-// ✅ API KULLANIM ÖRNEKLERİ (TÜM DİLLER İÇİN GÜNCELLENDİ)
+  // ✅ API KULLANIM ÖRNEKLERİ
   const apiUsageExamples = {
     python: `import requests
 import subprocess
@@ -401,6 +386,131 @@ const verify = async () => {
 
 verify();`,
 
+    // ✅ C DİLİ ÖRNEĞİ (libcurl ile)
+    c: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <curl/curl.h>
+
+/*
+ * Derlemek için: gcc main.c -lcurl -o loader
+ * Gereksinim: libcurl kütüphanesi
+ */
+
+// HWID almak için (Windows)
+void get_hwid(char* buffer, size_t size) {
+    FILE* pipe = _popen("powershell -Command \\"Get-CimInstance -Class Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID\\"", "r");
+    if (!pipe) {
+        strncpy(buffer, "HWID_NOT_FOUND", size);
+        return;
+    }
+    fgets(buffer, size, pipe);
+    // Yeni satır karakterini temizle
+    buffer[strcspn(buffer, "\\n")] = 0;
+    _pclose(pipe);
+}
+
+int main(void) {
+    CURL *curl;
+    CURLcode res;
+    char hwid[128];
+
+    // 1. HWID Al
+    get_hwid(hwid, sizeof(hwid));
+    printf("Cihaz HWID: %s\\n", hwid);
+
+    // 2. cURL Başlat
+    curl_global_init(CURL_GLOBAL_ALL);
+    curl = curl_easy_init();
+    
+    if(curl) {
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "Authorization: Bearer API_KEY_BURAYA");
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        char json_data[256];
+        snprintf(json_data, sizeof(json_data), "{\\"license_key\\": \\"LISANS_KEY_BURAYA\\", \\"hwid\\": \\"%s\\"}", hwid);
+
+        curl_easy_setopt(curl, CURLOPT_URL, "${API_BASE_URL}/api/verify-license");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_data);
+
+        // İsteği Gönder
+        res = curl_easy_perform(curl);
+
+        if(res != CURLE_OK)
+            fprintf(stderr, "Hata: %s\\n", curl_easy_strerror(res));
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    }
+    curl_global_cleanup();
+    return 0;
+}`,
+
+    // ✅ C++ ÖRNEĞİ (libcurl ile)
+    cpp: `#include <iostream>
+#include <string>
+#include <curl/curl.h>
+#include <cstdio>
+#include <memory>
+#include <array>
+
+/*
+ * Derlemek için: g++ main.cpp -lcurl -o loader
+ * Gereksinim: libcurl kütüphanesi
+ */
+
+// HWID almak için (Windows)
+std::string get_hwid() {
+    std::array<char, 128> buffer;
+    std::string result;
+    // PowerShell komutu ile UUID çekme
+    std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen("powershell -Command \\"Get-CimInstance -Class Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID\\"", "r"), _pclose);
+    if (!pipe) return "HWID_NOT_FOUND";
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    // Sondaki yeni satır karakterini sil
+    if (!result.empty() && result.back() == '\\n') result.pop_back();
+    return result;
+}
+
+int main() {
+    // 1. HWID Al
+    std::string hwid = get_hwid();
+    std::cout << "Cihaz HWID: " << hwid << std::endl;
+
+    CURL *curl;
+    CURLcode res;
+
+    curl_global_init(CURL_GLOBAL_ALL);
+    curl = curl_easy_init();
+    
+    if(curl) {
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "Authorization: Bearer API_KEY_BURAYA");
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        std::string json_data = "{\\"license_key\\": \\"LISANS_KEY_BURAYA\\", \\"hwid\\": \\"" + hwid + "\\"}";
+
+        curl_easy_setopt(curl, CURLOPT_URL, "${API_BASE_URL}/api/verify-license");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_data.c_str());
+
+        // İsteği Gönder
+        res = curl_easy_perform(curl);
+
+        if(res != CURLE_OK)
+            std::cerr << "curl_easy_perform() hatasi: " << curl_easy_strerror(res) << std::endl;
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    }
+    curl_global_cleanup();
+    return 0;
+}`,
+
     php: `<?php
 // ✅ Modern Windows HWID Alma (PowerShell)
 function get_hwid() {
@@ -456,10 +566,14 @@ curl -X POST "${API_BASE_URL}/api/verify-license" \\
   const JsIcon = () => (<div className="h-4 w-4 bg-[#F7DF1E] rounded-sm flex items-center justify-center"><FaJs className="h-3 w-3 text-black" /></div>);
   const CurlIcon = () => (<div className="h-4 w-4 bg-[#073551] rounded-sm flex items-center justify-center"><SiCurl className="h-3 w-3 text-white" /></div>);
   const PhpIcon = () => (<div className="h-4 w-4 bg-[#777BB4] rounded-sm flex items-center justify-center"><FaPhp className="h-3 w-3 text-white" /></div>);
+  const CIcon = () => (<div className="h-4 w-4 bg-[#555555] rounded-sm flex items-center justify-center"><SiC className="h-3 w-3 text-white" /></div>);
+  const CppIcon = () => (<div className="h-4 w-4 bg-[#00599C] rounded-sm flex items-center justify-center"><SiCplusplus className="h-3 w-3 text-white" /></div>);
 
   const tabs = [
     { id: 'python', name: 'Python', icon: <PythonIcon /> },
     { id: 'javascript', name: 'JavaScript', icon: <JsIcon /> },
+    { id: 'c', name: 'C', icon: <CIcon /> },
+    { id: 'cpp', name: 'C++', icon: <CppIcon /> },
     { id: 'curl', name: 'cURL', icon: <CurlIcon /> },
     { id: 'php', name: 'PHP', icon: <PhpIcon /> }
   ];
@@ -571,7 +685,7 @@ curl -X POST "${API_BASE_URL}/api/verify-license" \\
           </h3>
         </div>
 
-        {/* YENİ OLUŞTURULAN KEY UYARISI (Pop-up gibi) */}
+        {/* YENİ OLUŞTURULAN KEY UYARISI */}
         {newlyCreatedKey && (
           <div className="mb-6 p-4 bg-green-500/10 border border-green-500/50 rounded-lg animate-fade-in">
             <div className="flex items-start justify-between">
@@ -634,14 +748,6 @@ curl -X POST "${API_BASE_URL}/api/verify-license" \\
                 <code className="flex-1 font-mono text-gray-300 tracking-wide">
                   {maskApiKey(apiKeys[0].api_key)}
                 </code>
-                {/* <button
-                  onClick={() => toggleKeyVisibility(apiKeys[0].id)}
-                  className="p-2 text-gray-400 hover:text-white transition-colors"
-                  title="Gizle/Göster"
-                >
-                  {revealedKeys[apiKeys[0].id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button> 
-                */}
                 <button
                   onClick={() => deleteApiKey(apiKeys[0].id)}
                   className="p-2 text-red-400 hover:bg-red-500/10 rounded transition-colors"

@@ -6,6 +6,7 @@ import ReactCountryFlag from "react-country-flag";
 import { Crown, Zap, CheckCircle } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 import NotificationDropdown from './NotificationDropdown'; // ✅ Bildirim bileşeni import edildi
+import StatusBadge from './StatusBadge';
 
 export default function Navbar() {
   const location = useLocation();
@@ -255,10 +256,15 @@ export default function Navbar() {
 
         {/* Sağ Taraf - Login/Register veya Kullanıcı Menüsü */}
         <div className="flex items-center space-x-4 relative">
+
+<StatusBadge />
+
           {isLoggedIn ? (
             // ✅ GİRİŞ YAPILMIŞSA - Kullanıcı Menüsü (AVATARLI + PLAN BİLGİLİ)
             <div className="flex items-center space-x-4">
               
+             
+
               {/* ✅ YENİ: Bildirim Zili */}
               <NotificationDropdown />
 
